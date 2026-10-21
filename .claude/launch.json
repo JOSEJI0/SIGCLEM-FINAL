@@ -1,0 +1,60 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "sigclem-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "sigclem-web",
+        "run",
+        "dev"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "sigclem-api",
+      "runtimeExecutable": "java",
+      "runtimeArgs": [
+        "-jar",
+        "sigclem-api/target/sigclem-api-0.1.0-SNAPSHOT.jar",
+        "--spring.config.import=optional:file:.env[.properties]",
+        "--app.archivos.directorio=sigclem-api/archivos"
+      ],
+      "port": 8080
+    },
+    {
+      "name": "sigclem-api-carga",
+      "runtimeExecutable": "java",
+      "runtimeArgs": [
+        "-jar",
+        "sigclem-api/target/sigclem-api-0.1.0-SNAPSHOT.jar",
+        "--spring.config.import=optional:file:.env[.properties]",
+        "--server.port=8090",
+        "--spring.datasource.url=jdbc:mysql://localhost:3306/sigclem_carga?createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=America/Mexico_City&characterEncoding=UTF-8",
+        "--app.archivos.directorio=sigclem-api/target/archivos-carga",
+        "--app.sat.habilitado=false",
+        "--app.modo-pruebas.activo=true",
+        "--app.cors.origenes=http://localhost:5175"
+      ],
+      "port": 8090,
+      "autoPort": false
+    },
+    {
+      "name": "sigclem-web-carga",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "sigclem-web/node_modules/vite/bin/vite.js",
+        "sigclem-web",
+        "--port",
+        "5175",
+        "--strictPort"
+      ],
+      "env": {
+        "SIGCLEM_API_URL": "http://localhost:8090"
+      },
+      "port": 5175,
+      "autoPort": false
+    }
+  ]
+}

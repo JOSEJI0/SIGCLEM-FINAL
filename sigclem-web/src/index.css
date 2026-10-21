@@ -1,0 +1,35 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+
+/* Guía de estilo (Tabla 64 del documento de diseño) */
+@theme {
+  --font-sans: "Inter Variable", "Inter", system-ui, sans-serif;
+  --color-marino: #1B396A;
+  --color-marino-oscuro: #132B52;
+  --color-dorado: #B38E5D;
+  --color-fondo: #F2F4F8;
+  --color-linea: #E3E7EE;
+  --color-tinta: #1F2733;
+  --color-tenue: #6B7686;
+  --color-ok: #1E8E5A;
+  --color-ok-fondo: #E4F4EC;
+  --color-aviso: #B7791F;
+  --color-aviso-fondo: #FDF3E1;
+  --color-error: #C0392B;
+  --color-error-fondo: #FBE8E6;
+  --color-info: #2563A6;
+  --color-info-fondo: #E6EFF9;
+  --color-neutro: #8A94A3;
+  --color-neutro-fondo: #EEF0F3;
+}
+
+html, body, #root { height: 100%; }
+body { @apply bg-fondo text-tinta text-[13.5px] antialiased; }
+
+/* Impresión y "Guardar como PDF": solo el contenido, sin menú lateral ni barra superior. */
+@media print {
+  aside, header, .no-imprimir { display: none !important; }
+  body, #root { height: auto; background: white; }
+  main { padding: 0 !important; }
+  section, figure, table { break-inside: avoid; }
+}

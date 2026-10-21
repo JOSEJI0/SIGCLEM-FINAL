@@ -1,0 +1,15 @@
+{
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Spring Boot-SigclemApplication<sigclem-api>",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "mainClass": "mx.edu.itch.sigclem.SigclemApplication",
+            "projectName": "sigclem-api",
+            "args": "",
+            "envFile": "${workspaceFolder}/.env",
+            "preLaunchTask": "API: compilar (Maven)"
+        }
+    ]
+}

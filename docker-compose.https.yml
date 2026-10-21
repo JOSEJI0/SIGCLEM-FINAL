@@ -1,0 +1,12 @@
+# HTTPS para SIGCLEM. Se usa junto con docker-compose.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.https.yml up -d --build
+# Requiere en CERTS_DIR (./certs por omisión) los archivos fullchain.pem y privkey.pem del certificado del dominio
+# (certificado institucional o de Let's Encrypt). Ver DESPLIEGUE.md.
+services:
+  web:
+    ports:
+      - "${WEB_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./sigclem-web/nginx-https.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${CERTS_DIR:-./certs}:/etc/nginx/certs:ro

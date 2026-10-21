@@ -1,0 +1,12 @@
+{
+    // El compilador interno de VS Code (ECJ) generaba clases dañadas con Lombok
+    // ("Invalid method Code length 0"). Se compila siempre con Maven (javac + Lombok).
+    "java.autobuild.enabled": false,
+    // El depurador también recompilaba con ECJ antes de cada F5 y sobrescribía las clases de Maven.
+    // La compilación la hace la tarea previa "API: compilar (Maven)" del launch.json.
+    "java.debug.settings.forceBuildBeforeLaunch": false,
+    "java.jdt.ls.lombokSupport.enabled": true,
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.compile.nullAnalysis.mode": "disabled",
+    "java.debug.settings.onBuildFailureProceed": true
+}

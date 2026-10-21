@@ -1,0 +1,83 @@
+# SIGCLEM - despliegue con Docker Compose (Figura 30 del documento de diseño).
+# Valores por omisión pensados para producción: sin modo pruebas, sin Swagger UI y MySQL solo accesible desde el
+# propio servidor. Para HTTPS se agrega docker-compose.https.yml (ver DESPLIEGUE.md).
+x-registro: &registro
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
+services:
+  db:
+    image: mysql:8.0
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_0900_ai_ci
+    environment:
+      MYSQL_DATABASE: sigclem
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:?Define DB_ROOT_PASS en .env}
+      DB_APP_PASS: ${DB_APP_PASS:?Define DB_APP_PASS en .env}
+      DB_FLYWAY_PASS: ${DB_FLYWAY_PASS:?Define DB_FLYWAY_PASS en .env}
+      TZ: America/Mexico_City
+    ports:
+      # Solo desde el propio servidor (administración y respaldos); nunca expuesto a la red.
+      - "127.0.0.1:${DB_PORT:-3308}:3306"
+    volumes:
+      - mysql_datos:/var/lib/mysql
+      - ./db-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    networks: [sigclem]
+    <<: *registro
+
+  api:
+    build: ./sigclem-api
+    environment:
+      DB_URL: jdbc:mysql://db:3306/sigclem?serverTimezone=America/Mexico_City&characterEncoding=UTF-8&allowPublicKeyRetrieval=true&useSSL=false
+      DB_USER: sigclem_app
+      DB_PASS: ${DB_APP_PASS}
+      FLYWAY_USER: sigclem_flyway
+      FLYWAY_PASS: ${DB_FLYWAY_PASS}
+      JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET en .env (mínimo 32 caracteres)}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      ARCHIVOS_DIR: /srv/sigclem/archivos
+      # Fuera de la fase de pruebas ambos quedan en false (ver DESPLIEGUE.md).
+      API_DOCS: ${API_DOCS:-false}
+      MODO_PRUEBAS: ${MODO_PRUEBAS:-false}
+      SAT_CONSULTA: ${SAT_CONSULTA:-true}
+      OCR_COMANDO: ${OCR_COMANDO:-tesseract}
+      JAVA_OPTS: ${JAVA_OPTS:--XX:MaxRAMPercentage=75 -Djava.awt.headless=true}
+      COORDINADOR_USUARIO: ${COORDINADOR_USUARIO:-}
+      COORDINADOR_CONTRASENA: ${COORDINADOR_CONTRASENA:-}
+      JEFA_USUARIO: ${JEFA_USUARIO:-}
+      JEFA_CONTRASENA: ${JEFA_CONTRASENA:-}
+    volumes:
+      - archivos:/srv/sigclem/archivos
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [sigclem]
+    <<: *registro
+
+  web:
+    build: ./sigclem-web
+    ports:
+      - "${WEB_PORT:-80}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [sigclem]
+    <<: *registro
+
+volumes:
+  mysql_datos:
+  archivos:
+
+networks:
+  sigclem:

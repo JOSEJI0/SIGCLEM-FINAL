@@ -1,0 +1,14 @@
+.env
+*.log
+.DS_Store
+
+# Prueba de carga: archivos generados
+pruebas-carga/cp.txt
+pruebas-carga/recibos/
+pruebas-carga/*.csv
+pruebas-carga/*.class
+pruebas-carga/resultado.json
+
+# Despliegue: respaldos y certificados del servidor
+respaldos/
+certs/

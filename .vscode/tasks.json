@@ -1,0 +1,57 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "API: compilar (Maven)",
+            "type": "shell",
+            "command": "./mvnw -q compile",
+            "windows": {
+                "command": ".\\mvnw.cmd -q compile"
+            },
+            "options": {
+                "cwd": "${workspaceFolder}/sigclem-api"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "API: ejecutar (Maven)",
+            "type": "shell",
+            "command": "./mvnw spring-boot:run",
+            "windows": {
+                "command": ".\\mvnw.cmd spring-boot:run"
+            },
+            "options": {
+                "cwd": "${workspaceFolder}/sigclem-api"
+            },
+            "isBackground": true,
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "Web: ejecutar (Vite)",
+            "type": "shell",
+            "command": "npm run dev",
+            "options": {
+                "cwd": "${workspaceFolder}/sigclem-web"
+            },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "API: pruebas (Maven)",
+            "type": "shell",
+            "command": "./mvnw test",
+            "windows": {
+                "command": ".\\mvnw.cmd test"
+            },
+            "options": {
+                "cwd": "${workspaceFolder}/sigclem-api"
+            },
+            "problemMatcher": [],
+            "group": "test"
+        }
+    ]
+}

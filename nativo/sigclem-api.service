@@ -1,0 +1,25 @@
+[Unit]
+Description=SIGCLEM API (Spring Boot)
+After=network-online.target mysql.service
+Wants=network-online.target
+Requires=mysql.service
+
+[Service]
+User=sigclem
+Group=sigclem
+WorkingDirectory=/opt/sigclem
+EnvironmentFile=/etc/sigclem/sigclem.env
+Environment=TZ=America/Mexico_City
+ExecStart=/usr/bin/java $JAVA_OPTS -jar /opt/sigclem/app.jar
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=10
+# Endurecimiento: la API solo escribe en la carpeta de archivos.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/sigclem
+
+[Install]
+WantedBy=multi-user.target

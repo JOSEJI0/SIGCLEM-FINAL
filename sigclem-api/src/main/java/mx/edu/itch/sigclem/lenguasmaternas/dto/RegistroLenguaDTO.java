@@ -14,7 +14,12 @@ public record RegistroLenguaDTO(
         String estatus,
         LocalDate fechaRegistro,
         String usuarioValidador,
-        String nombreDocumento) {
+        String nombreDocumento,
+        boolean tieneCurp,
+        boolean tieneDomicilio,
+        boolean tieneIne,
+        boolean tieneIntercultural,
+        boolean tieneConstancia) {
 
     public static RegistroLenguaDTO desde(RegistroLenguaMaterna registro) {
         return new RegistroLenguaDTO(
@@ -27,6 +32,11 @@ public record RegistroLenguaDTO(
                 registro.getEstatus(),
                 registro.getFechaRegistro(),
                 registro.getUsuarioValida() == null ? null : registro.getUsuarioValida().getNombreUsuario(),
-                "Documento adjunto");
+                registro.getDocumento() != null ? "Documento general" : "Expediente digital",
+                registro.getDocumentoCurp() != null,
+                registro.getDocumentoDomicilio() != null,
+                registro.getDocumentoIne() != null,
+                registro.getDocumentoIntercultural() != null,
+                registro.getConstanciaAcreditacion() != null);
     }
 }

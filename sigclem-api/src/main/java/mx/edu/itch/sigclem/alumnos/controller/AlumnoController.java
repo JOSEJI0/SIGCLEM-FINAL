@@ -89,8 +89,9 @@ public class AlumnoController {
             @RequestParam(required = false) Integer nivel,
             @RequestParam(required = false) Integer semestre,
             @RequestParam(required = false) String estatus,
+            @RequestParam(required = false) String formaLiberacion,
             @PageableDefault(size = 20) Pageable pageable) {
-        return alumnoService.buscar(busqueda, idCarrera, numeroControl, nombre, nivel, semestre, estatus, pageable);
+        return alumnoService.buscar(busqueda, idCarrera, numeroControl, nombre, nivel, semestre, estatus, formaLiberacion, pageable);
     }
 
     /** CU-02 El coordinador crea la cuenta del alumno (ya no hay registro público; cambio 15). */

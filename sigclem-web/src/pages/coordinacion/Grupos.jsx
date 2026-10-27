@@ -1,3 +1,5 @@
+import { useAuth } from '../../auth/AuthContext';
+import { esSoloConsulta } from '../../auth/roles';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CalendarDays, ChevronDown, LayoutGrid, Lock, NotebookPen, Pencil, Plus, Trash2, UserMinus, UserPlus, Users, X,
@@ -24,7 +26,9 @@ function fechaLocal() {
 const aHora = (min) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 
 /** Grupos y horarios: calendario del periodo, apertura/edición con calendario interactivo, borrado y alumnos. */
-export default function Grupos() {
+export default function Grupos({ soloLectura = false }) {
+  const { perfil } = useAuth();
+  const esSoloLectura = soloLectura || esSoloConsulta(perfil?.rol);
   const [catalogos, setCatalogos] = useState({ niveles: [], periodos: [], modalidades: [], aulas: [], facilitadores: [] });
   const [idPeriodo, setIdPeriodo] = useState('');
   const [grupos, setGrupos] = useState([]);
@@ -39,6 +43,12 @@ export default function Grupos() {
 
   const cargarCatalogos = useCallback(async () => {
     try {
+      if (esSoloLectura) {
+        const periodos = await obtenerPeriodos();
+        setCatalogos((actuales) => ({ ...actuales, periodos }));
+        setIdPeriodo((previo) => previo || String(periodos.find((p) => p.fechaFin >= fechaLocal())?.id ?? periodos[0]?.id ?? ''));
+        return;
+      }
       const [niveles, periodos, modalidades, aulas, facilitadores] = await Promise.all([
         obtenerNiveles(), obtenerPeriodos(), obtenerModalidades(), obtenerAulas(), listarFacilitadores(),
       ]);
@@ -49,7 +59,7 @@ export default function Grupos() {
     } finally {
       setCargando(false);
     }
-  }, []);
+  }, [esSoloLectura]);
 
   const cargarGrupos = useCallback(async () => {
     if (!idPeriodo) return;
@@ -100,7 +110,11 @@ export default function Grupos() {
             ))}
           </div>
         </div>
-        <Boton onClick={nuevoGrupo} disabled={cargando || !catalogos.periodos.length}><Plus className="h-4 w-4" /> Abrir grupo</Boton>
+        {!esSoloLectura && (
+          <Boton onClick={nuevoGrupo} disabled={cargando || !catalogos.periodos.length}>
+            <Plus className="h-4 w-4" /> Abrir grupo
+          </Boton>
+        )}
       </div>
 
       {error && <Alerta tipo="error">{error}</Alerta>}
@@ -109,7 +123,9 @@ export default function Grupos() {
       {cargando ? <Cargando /> : vista === 'calendario' ? (
         <Tarjeta titulo="Horario semanal del periodo" icono={CalendarDays}
           extra={`${grupos.length} grupos · haz clic en una sesión para ver sus alumnos`}>
-          {grupos.length === 0 ? <p className="text-sm text-tenue">No hay grupos en este periodo. Usa «Abrir grupo».</p>
+          {grupos.length === 0 ? <p className="text-sm text-tenue">
+            {soloLectura ? 'No hay grupos en este periodo.' : 'No hay grupos en este periodo. Usa «Abrir grupo».'}
+          </p>
             : <CalendarioSemanal sesiones={sesionesPeriodo} />}
         </Tarjeta>
       ) : (
@@ -140,36 +156,46 @@ export default function Grupos() {
               </div>
               <div className="mt-auto flex flex-wrap gap-2 border-t border-linea pt-3">
                 <Boton className="flex-1" onClick={() => setPanelAlumnos(g)}><Users className="h-3.5 w-3.5" /> Alumnos</Boton>
-                <Boton variante="secundario" disabled={g.estatusActa === 'Cerrada'} onClick={() => editarExistente(g)}><Pencil className="h-3.5 w-3.5" /> Editar</Boton>
-                <Boton variante="peligro" disabled={g.alumnosInscritos > 0} title={g.alumnosInscritos > 0 ? 'Quita primero a los alumnos' : ''}
-                  onClick={() => setBorrar(g)}><Trash2 className="h-3.5 w-3.5" /></Boton>
+                {!esSoloLectura && (
+                  <>
+                    <Boton variante="secundario" disabled={g.estatusActa === 'Cerrada'} onClick={() => editarExistente(g)}>
+                      <Pencil className="h-3.5 w-3.5" /> Editar
+                    </Boton>
+                    <Boton variante="peligro" disabled={g.alumnosInscritos > 0}
+                      title={g.alumnosInscritos > 0 ? 'Quita primero a los alumnos' : ''}
+                      onClick={() => setBorrar(g)}><Trash2 className="h-3.5 w-3.5" /></Boton>
+                  </>
+                )}
               </div>
             </article>
           ))}
         </div>
       )}
 
-      <Tarjeta>
-        <button type="button" className="flex w-full items-center justify-between text-[14.5px] font-semibold" onClick={() => setVerCatalogos(!verCatalogos)}>
-          Catálogos para grupos (periodos y aulas)
-          <ChevronDown className={`h-4 w-4 transition ${verCatalogos ? 'rotate-180' : ''}`} />
-        </button>
-        {verCatalogos && <Catalogos onCambio={async (msg, campo, id) => {
-          await cargarCatalogos();
-          if (campo === 'periodo') setIdPeriodo(String(id));
-          setAviso(msg);
-        }} onError={setError} />}
-      </Tarjeta>
+      {!esSoloLectura && (
+        <Tarjeta>
+          <button type="button" className="flex w-full items-center justify-between text-[14.5px] font-semibold" onClick={() => setVerCatalogos(!verCatalogos)}>
+            Catálogos para grupos (periodos y aulas)
+            <ChevronDown className={`h-4 w-4 transition ${verCatalogos ? 'rotate-180' : ''}`} />
+          </button>
+          {verCatalogos && <Catalogos onCambio={async (msg, campo, id) => {
+            await cargarCatalogos();
+            if (campo === 'periodo') setIdPeriodo(String(id));
+            setAviso(msg);
+          }} onError={setError} />}
+        </Tarjeta>
+      )}
 
       {editor && (
         <EditorGrupo editor={editor} setEditor={setEditor} catalogos={catalogos}
           onGuardado={async (msg) => { setEditor(null); setAviso(msg); if (String(editor.idPeriodo) !== idPeriodo) setIdPeriodo(String(editor.idPeriodo)); await cargarGrupos(); }} />
       )}
       {panelAlumnos && (
-        <PanelAlumnos grupo={panelAlumnos} onCerrar={() => { setPanelAlumnos(null); cargarGrupos(); }}
+        <PanelAlumnos grupo={panelAlumnos} soloLectura={esSoloLectura}
+          onCerrar={() => { setPanelAlumnos(null); if (!esSoloLectura) cargarGrupos(); }}
           onEditar={(g) => { setPanelAlumnos(null); editarExistente(g); }} />
       )}
-      {borrar && (
+      {!esSoloLectura && borrar && (
         <ConfirmacionDoble titulo="Eliminar grupo" palabra="ELIMINAR" textoBoton="Eliminar grupo"
           mensaje={<>Se eliminará el grupo <b>{borrar.nivel} {borrar.clave}</b> con sus horarios y las elecciones de los alumnos interesados.</>}
           onCerrar={() => setBorrar(null)}
@@ -330,7 +356,7 @@ function EditorGrupo({ editor, setEditor, catalogos, onGuardado }) {
 }
 
 /** Alumnos del grupo: asignados (con su papeleta de pago) e interesados de la encuesta; asignar o quitar. */
-function PanelAlumnos({ grupo, onCerrar, onEditar }) {
+function PanelAlumnos({ grupo, onCerrar, onEditar, soloLectura = false }) {
   const [detalle, setDetalle] = useState(null);
   const [candidatos, setCandidatos] = useState([]);
   const [numeroControl, setNumeroControl] = useState('');
@@ -374,7 +400,7 @@ function PanelAlumnos({ grupo, onCerrar, onEditar }) {
     <Modal titulo={`${g.nivel} · Grupo ${g.clave}`} onCerrar={onCerrar} ancho="max-w-4xl">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-[13px] text-tenue">
         <span>{g.periodo} · {g.modalidad} · {g.aula} · {g.facilitador} · {g.horarios.map((h) => `${DIAS[h.diaSemana - 1].slice(0, 3)} ${horaCorta(h.horaInicio)}–${horaCorta(h.horaFin)}`).join(', ')}</span>
-        {!cerrada && <Boton variante="secundario" onClick={() => onEditar(g)}><Pencil className="h-3.5 w-3.5" /> Editar grupo</Boton>}
+        {!cerrada && !soloLectura && <Boton variante="secundario" onClick={() => onEditar(g)}><Pencil className="h-3.5 w-3.5" /> Editar grupo</Boton>}
       </div>
       {error && <Alerta tipo="error" className="mb-3">{error}</Alerta>}
       {aviso && <Alerta tipo="ok" className="mb-3">{aviso}</Alerta>}
@@ -394,7 +420,7 @@ function PanelAlumnos({ grupo, onCerrar, onEditar }) {
                       <Insignia estatus={a.estatusPago} />
                       {a.saldoPendiente > 0 && <div className="mt-0.5 text-tenue">Saldo {pesos(a.saldoPendiente)}</div>}
                     </div>
-                    {a.avancePendiente && (
+                    {!soloLectura && a.avancePendiente && (
                       <div className="flex w-full items-center justify-end gap-2 border-t border-dashed border-linea pt-2">
                         <span className="mr-auto text-xs text-tenue">Sin pago al cerrar el acta</span>
                         <Insignia estatus="Nivel pendiente" />
@@ -404,7 +430,7 @@ function PanelAlumnos({ grupo, onCerrar, onEditar }) {
                         </Boton>
                       </div>
                     )}
-                    {!cerrada && (
+                    {!cerrada && !soloLectura && (
                       <button type="button" title="Quitar del grupo" className="text-tenue hover:text-error" disabled={Boolean(ocupado)}
                         onClick={() => setQuitar(a)}><UserMinus className="h-4 w-4" /></button>
                     )}
@@ -412,7 +438,7 @@ function PanelAlumnos({ grupo, onCerrar, onEditar }) {
                 ))}
               </ul>
             )}
-            {!cerrada && (
+            {!cerrada && !soloLectura && (
               <form className="mt-4 flex gap-2" onSubmit={(e) => { e.preventDefault(); if (numeroControl.trim()) asignar(numeroControl.trim().toUpperCase()); }}>
                 <input list="candidatos-grupo" className={claseEntrada} placeholder={`Número de control (alumnos de ${g.nivel})`}
                   value={numeroControl} onChange={(e) => setNumeroControl(e.target.value.toUpperCase())} />
@@ -424,10 +450,11 @@ function PanelAlumnos({ grupo, onCerrar, onEditar }) {
                 <Boton type="submit" disabled={Boolean(ocupado)}><UserPlus className="h-4 w-4" /> Asignar</Boton>
               </form>
             )}
-            <p className="mt-2 text-xs text-tenue">Al asignar a un alumno se genera automáticamente su papeleta de pago con la tarifa vigente del nivel.
-              El facilitador cierra el acta cuando todos liquidaron su curso; si no, coordinación puede cerrarla con una observación.</p>
-            <SeccionActa grupo={g} cerrada={cerrada} todasCapturadas={todasCapturadas} sinLiquidar={sinLiquidar}
-              ocupado={Boolean(ocupado)} onCerrar={() => setObservar({ tipo: 'cierre' })} />
+            <p className="mt-2 text-xs text-tenue">{soloLectura ? 'Consulta de alumnos del grupo y su estatus de pago.' : 'Al asignar a un alumno se genera automáticamente su papeleta de pago con la tarifa vigente del nivel. El facilitador cierra el acta cuando todos liquidaron su curso; si no, coordinación puede cerrarla con una observación.'}</p>
+            {!soloLectura && (
+              <SeccionActa grupo={g} cerrada={cerrada} todasCapturadas={todasCapturadas} sinLiquidar={sinLiquidar}
+                ocupado={Boolean(ocupado)} onCerrar={() => setObservar({ tipo: 'cierre' })} />
+            )}
             {detalle.observaciones?.length > 0 && (
               <div className="mt-4">
                 <h4 className="mb-2 text-sm font-semibold">Observaciones de coordinación</h4>
@@ -458,7 +485,7 @@ function PanelAlumnos({ grupo, onCerrar, onEditar }) {
                       <div className="truncate text-[13px] font-semibold">{i.nombreCompleto}</div>
                       <div className="text-xs text-tenue">{i.numeroControl} · {i.carrera}</div>
                     </div>
-                    {!cerrada && <Boton disabled={Boolean(ocupado)} onClick={() => asignar(i.numeroControl)}>Asignar</Boton>}
+                    {!cerrada && !soloLectura && <Boton disabled={Boolean(ocupado)} onClick={() => asignar(i.numeroControl)}>Asignar</Boton>}
                   </li>
                 ))}
               </ul>

@@ -19,5 +19,23 @@ public record AlumnoResumenDTO(
         String nivelActual,
         boolean hablaLenguaMaterna,
         /** "Activo" o "Baja". */
-        String estatus) {
+        String estatus,
+        String formaLiberacion) {
+
+    public AlumnoResumenDTO(
+            String numeroControl,
+            String nombreCompleto,
+            String carrera,
+            Integer semestre,
+            String sexo,
+            LocalDate fechaActualizacionSemestre,
+            String correo,
+            LocalDate fechaInscripcion,
+            Integer numeroNivelActual,
+            String nivelActual,
+            boolean hablaLenguaMaterna,
+            String estatus) {
+        this(numeroControl, nombreCompleto, carrera, semestre, sexo, fechaActualizacionSemestre, correo,
+                fechaInscripcion, numeroNivelActual, nivelActual, hablaLenguaMaterna, estatus, null);
+    }
 }

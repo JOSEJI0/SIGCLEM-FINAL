@@ -1,11 +1,14 @@
 import { useState } from 'react';
-import { KeyRound, ShieldCheck, UserCog, UserRound } from 'lucide-react';
+import { ShieldCheck, UserCog, UserRound } from 'lucide-react';
 import { mensajeError } from '../../api/cliente';
-import { asignarContrasenaAlumno, asignarContrasenaJefa, cambiarMiContrasena } from '../../api/cuentas';
+import { asignarContrasenaAlumno, asignarContrasenaJefa } from '../../api/cuentas';
+import CambiarMiContrasena from '../../components/CambiarMiContrasena';
 import { Alerta, Boton, Campo, Tarjeta, claseEntrada } from '../../components/ui';
 
-const valida = (c) => c.length >= 8 && /[A-Za-zÁÉÍÓÚÑáéíóúñ]/.test(c) && /\d/.test(c);
-const AYUDA = 'Mínimo 8 caracteres, con al menos una letra y un número.';
+const validaFuerte = (c) => c.length >= 8 && /[A-Za-zÁÉÍÓÚÑáéíóúñ]/.test(c) && /\d/.test(c);
+const validaLibre = (c) => c.trim().length > 0 && new TextEncoder().encode(c).length <= 72;
+const AYUDA_FUERTE = 'Mínimo 8 caracteres, con al menos una letra y un número.';
+const AYUDA_ALUMNO = 'Puedes usar cualquier contraseña, incluido solo el número de control. Máximo 72 bytes UTF-8.';
 
 /** Contraseñas que administra coordinación: la propia, la de los alumnos y la de la jefa del DGTV. */
 export default function Cuentas() {
@@ -18,9 +21,10 @@ export default function Cuentas() {
         </p>
       </div>
       <div className="grid grid-cols-1 gap-[18px] xl:grid-cols-3">
-        <MiContrasena />
+        <CambiarMiContrasena />
         <Asignar titulo="Contraseña de un alumno" icono={UserRound} conNumeroControl
-          ayudaExtra="Úsalo cuando el alumno olvida su contraseña; entrégasela en persona."
+          contrasenaLibre
+          ayudaExtra="Úsalo cuando el alumno olvida su contraseña; entrégasela en persona. También puedes asignar su número de control como contraseña inicial."
           enviar={(datos) => asignarContrasenaAlumno(datos.numeroControl.trim(), datos.contrasena)}
           aviso={(datos) => `Se asignó la nueva contraseña al alumno ${datos.numeroControl.trim().toUpperCase()}.`} />
         <Asignar titulo="Contraseña de la jefa del DGTV" icono={UserCog}
@@ -31,53 +35,13 @@ export default function Cuentas() {
   );
 }
 
-function MiContrasena() {
-  const [datos, setDatos] = useState({ actual: '', nueva: '', confirmacion: '' });
-  const [estado, setEstado] = useState({ guardando: false, error: '', aviso: '' });
-  const listo = datos.actual && valida(datos.nueva) && datos.nueva === datos.confirmacion;
-
-  async function guardar(e) {
-    e.preventDefault();
-    setEstado({ guardando: true, error: '', aviso: '' });
-    try {
-      await cambiarMiContrasena(datos.actual, datos.nueva);
-      setDatos({ actual: '', nueva: '', confirmacion: '' });
-      setEstado({ guardando: false, error: '', aviso: 'Tu contraseña se actualizó. Úsala la próxima vez que inicies sesión.' });
-    } catch (err) {
-      setEstado({ guardando: false, error: mensajeError(err), aviso: '' });
-    }
-  }
-
-  return (
-    <Tarjeta titulo="Mi contraseña" icono={KeyRound}>
-      {estado.error && <Alerta tipo="error" className="mb-3">{estado.error}</Alerta>}
-      {estado.aviso && <Alerta tipo="ok" className="mb-3">{estado.aviso}</Alerta>}
-      <form className="grid gap-3" onSubmit={guardar}>
-        <Campo etiqueta="Contraseña actual" id="mi-actual">
-          <input className={claseEntrada} id="mi-actual" type="password" autoComplete="current-password" value={datos.actual}
-            onChange={(e) => setDatos({ ...datos, actual: e.target.value })} />
-        </Campo>
-        <Campo etiqueta="Nueva contraseña" id="mi-nueva" ayuda={AYUDA}
-          error={datos.nueva && !valida(datos.nueva) ? 'Aún no cumple los requisitos.' : ''}>
-          <input className={claseEntrada} id="mi-nueva" type="password" autoComplete="new-password" maxLength="72" value={datos.nueva}
-            onChange={(e) => setDatos({ ...datos, nueva: e.target.value })} />
-        </Campo>
-        <Campo etiqueta="Confirma la nueva contraseña" id="mi-confirmacion"
-          error={datos.confirmacion && datos.confirmacion !== datos.nueva ? 'Las contraseñas no coinciden.' : ''}>
-          <input className={claseEntrada} id="mi-confirmacion" type="password" autoComplete="new-password" maxLength="72"
-            value={datos.confirmacion} onChange={(e) => setDatos({ ...datos, confirmacion: e.target.value })} />
-        </Campo>
-        <div><Boton type="submit" disabled={!listo || estado.guardando}>{estado.guardando ? 'Guardando…' : 'Cambiar mi contraseña'}</Boton></div>
-      </form>
-    </Tarjeta>
-  );
-}
-
-function Asignar({ titulo, icono, conNumeroControl = false, ayudaExtra, enviar, aviso }) {
+function Asignar({ titulo, icono, conNumeroControl = false, contrasenaLibre = false, ayudaExtra, enviar, aviso }) {
   const vacio = { numeroControl: '', contrasena: '' };
   const [datos, setDatos] = useState(vacio);
   const [estado, setEstado] = useState({ guardando: false, error: '', aviso: '' });
-  const listo = valida(datos.contrasena) && (!conNumeroControl || datos.numeroControl.trim());
+  const validaContrasena = contrasenaLibre ? validaLibre : validaFuerte;
+  const ayudaContrasena = contrasenaLibre ? AYUDA_ALUMNO : AYUDA_FUERTE;
+  const listo = validaContrasena(datos.contrasena) && (!conNumeroControl || datos.numeroControl.trim());
   const id = conNumeroControl ? 'alumno' : 'jefa';
 
   async function guardar(e) {
@@ -106,8 +70,10 @@ function Asignar({ titulo, icono, conNumeroControl = false, ayudaExtra, enviar, 
               onChange={(e) => setDatos({ ...datos, numeroControl: e.target.value.toUpperCase() })} />
           </Campo>
         )}
-        <Campo etiqueta="Nueva contraseña" id={`${id}-contrasena`} ayuda={AYUDA}
-          error={datos.contrasena && !valida(datos.contrasena) ? 'Aún no cumple los requisitos.' : ''}>
+        <Campo etiqueta="Nueva contraseña" id={`${id}-contrasena`} ayuda={ayudaContrasena}
+          error={datos.contrasena && !validaContrasena(datos.contrasena)
+            ? contrasenaLibre ? 'Ingresa una contraseña de hasta 72 bytes UTF-8.' : 'Aún no cumple los requisitos.'
+            : ''}>
           <input className={claseEntrada} id={`${id}-contrasena`} type="text" autoComplete="off" maxLength="72" value={datos.contrasena}
             onChange={(e) => setDatos({ ...datos, contrasena: e.target.value })} />
         </Campo>

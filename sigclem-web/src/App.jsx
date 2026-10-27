@@ -13,6 +13,7 @@ import LenguaMaterna from './pages/alumno/LenguaMaterna';
 import CursosDisponibles from './pages/alumno/CursosDisponibles';
 import Boletas from './pages/alumno/Boletas';
 import ConstanciasAlumno from './pages/alumno/Constancias';
+import SeguridadAlumno from './pages/alumno/Seguridad';
 import PanelCoordinador from './pages/coordinacion/PanelCoordinador';
 import Alumnos from './pages/coordinacion/Alumnos';
 import DiagnosticosExamenes from './pages/coordinacion/DiagnosticosExamenes';
@@ -21,9 +22,6 @@ import Facilitadores from './pages/coordinacion/Facilitadores';
 import Grupos from './pages/coordinacion/Grupos';
 import Pagos from './pages/coordinacion/Pagos';
 import PanelSupervision from './pages/supervision/PanelSupervision';
-import FacilitadoresSupervision from './pages/supervision/FacilitadoresSupervision';
-import PagosSupervision from './pages/supervision/PagosSupervision';
-import GruposSupervision from './pages/supervision/GruposSupervision';
 import Mensajes from './pages/Mensajes';
 import LenguasMaternas from './pages/coordinacion/LenguasMaternas';
 import Reportes from './pages/Reportes';
@@ -64,6 +62,7 @@ export default function App() {
           <Route path="pagos" element={<PagosAlumno />} />
           <Route path="boletas" element={<Boletas />} />
           <Route path="constancias" element={<ConstanciasAlumno />} />
+          <Route path="seguridad" element={<SeguridadAlumno />} />
           <Route path="lengua-materna" element={<SoloHablantesLenguaMaterna><LenguaMaterna /></SoloHablantesLenguaMaterna>} />
         </Route>
       </Route>
@@ -87,9 +86,11 @@ export default function App() {
           <Route path="facilitadores" element={<Facilitadores />} />
           <Route path="grupos" element={<Grupos />} />
           <Route path="comprobantes" element={<Pagos />} />
+          <Route path="pagos" element={<Pagos />} />
           <Route path="constancias" element={<ConstanciasCoordinacion />} />
           <Route path="firmas-membrete" element={<FirmasMembrete />} />
           <Route path="cuentas" element={<Cuentas />} />
+          <Route path="seguridad" element={<SeguridadAlumno />} />
           <Route path="lenguas-maternas" element={<LenguasMaternas />} />
           <Route path="reportes" element={<Reportes />} />
           <Route path="mensajes" element={<Mensajes />} />
@@ -107,15 +108,17 @@ export default function App() {
         <Route path="/supervision" element={<LayoutPrincipal />}>
           <Route index element={<PanelSupervision />} />
           <Route path="alumnos" element={<Alumnos />} />
-          <Route path="facilitadores" element={<FacilitadoresSupervision />} />
-          <Route path="grupos" element={<GruposSupervision />} />
+          <Route path="facilitadores" element={<Facilitadores soloLectura />} />
+          <Route path="grupos" element={<Grupos soloLectura />} />
           <Route path="examenes" element={<DiagnosticosExamenes soloLectura />} />
           <Route path="diagnosticos" element={<EvaluacionesDiagnosticas soloLectura />} />
-          <Route path="pagos" element={<PagosSupervision />} />
+          <Route path="pagos" element={<Pagos soloLectura />} />
+          <Route path="comprobantes" element={<Pagos soloLectura />} />
           <Route path="constancias" element={<ConstanciasCoordinacion soloLectura />} />
           <Route path="lenguas-maternas" element={<LenguasMaternas soloLectura />} />
           <Route path="reportes" element={<Reportes />} />
           <Route path="mensajes" element={<Mensajes />} />
+          <Route path="seguridad" element={<SeguridadAlumno />} />
         </Route>
       </Route>
 

@@ -40,8 +40,23 @@ public class RegistroLenguaMaterna {
     @Column(name = "nivel_dominio", length = 20)
     private String nivelDominio;
 
-    @Column(nullable = false, length = 255)
+    @Column(length = 255)
     private String documento;
+
+    @Column(name = "documento_curp", length = 255)
+    private String documentoCurp;
+
+    @Column(name = "documento_domicilio", length = 255)
+    private String documentoDomicilio;
+
+    @Column(name = "documento_ine", length = 255)
+    private String documentoIne;
+
+    @Column(name = "documento_intercultural", length = 255)
+    private String documentoIntercultural;
+
+    @Column(name = "constancia_acreditacion", length = 255)
+    private String constanciaAcreditacion;
 
     @Column(nullable = false, length = 10)
     private String estatus = "Pendiente";

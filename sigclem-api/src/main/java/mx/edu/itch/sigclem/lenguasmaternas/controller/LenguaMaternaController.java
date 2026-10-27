@@ -32,7 +32,7 @@ import mx.edu.itch.sigclem.lenguasmaternas.dto.RegistroLenguaDTO;
 import mx.edu.itch.sigclem.lenguasmaternas.dto.RegistroLenguaRequest;
 import mx.edu.itch.sigclem.lenguasmaternas.service.LenguaMaternaService;
 
-@Tag(name = "11. Lenguas maternas", description = "CU-18 y CU-19: catálogo, registro con documento y revisión.")
+@Tag(name = "11. Lenguas maternas", description = "CU-18 y CU-19: catálogo, registro con documentos (CURP, Domicilio, INE) y revisión.")
 @RestController
 @RequestMapping("/api/v1/lenguas-maternas")
 @RequiredArgsConstructor
@@ -64,23 +64,35 @@ public class LenguaMaternaController {
 
     @PostMapping(value = "/registros", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasRole('ALUMNO')")
-    @Operation(summary = "Registrar lengua con documento (PDF/PNG/JPG)", description = "Rol: [Alumno]")
+    @Operation(summary = "Registrar lengua con CURP, comprobante de domicilio e INE", description = "Rol: [Alumno]")
     public ResponseEntity<RegistroLenguaDTO> registrar(
             @RequestParam Integer idLengua,
             @RequestParam(required = false) String nivelDominio,
-            @RequestPart("documento") MultipartFile documento,
+            @RequestPart(value = "documento", required = false) MultipartFile documento,
+            @RequestPart(value = "curp", required = false) MultipartFile curp,
+            @RequestPart(value = "domicilio", required = false) MultipartFile domicilio,
+            @RequestPart(value = "ine", required = false) MultipartFile ine,
             Authentication authentication) {
-        // Campos simples de formulario (antes era una parte JSON "datos"), así funciona igual desde
-        // la SPA, Swagger UI, Postman o curl sin tener que declarar el Content-Type de cada parte.
         if (nivelDominio != null && nivelDominio.trim().length() > 20) {
             throw new DatosInvalidosException("LENG-013", "El nivel de dominio no puede exceder 20 caracteres.");
         }
         RegistroLenguaRequest solicitud = new RegistroLenguaRequest(idLengua, nivelDominio);
         LenguaMaternaService.ResultadoRegistro resultado =
-                lenguaService.registrar(solicitud, documento, authentication.getName());
+                lenguaService.registrar(solicitud, documento, curp, domicilio, ine, authentication.getName());
         URI ubicacion = URI.create("/api/v1/lenguas-maternas/registros/" + resultado.registro().id());
         return ResponseEntity.status(resultado.actualizado() ? 200 : 201).location(ubicacion)
                 .body(resultado.registro());
+    }
+
+    @PostMapping(value = "/registros/{id}/documentos-coordinacion", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('COORDINADOR')")
+    @Operation(summary = "Subir documento intercultural y/o constancia de acreditación", description = "Rol: [Coordinador]")
+    public RegistroLenguaDTO subirDocumentosCoordinacion(
+            @PathVariable Integer id,
+            @RequestPart(value = "intercultural", required = false) MultipartFile intercultural,
+            @RequestPart(value = "constancia", required = false) MultipartFile constancia,
+            Authentication authentication) {
+        return lenguaService.subirDocumentosCoordinacion(id, intercultural, constancia, authentication.getName());
     }
 
     @GetMapping("/registros")
@@ -100,18 +112,25 @@ public class LenguaMaternaController {
         return lenguaService.cambiarEstatus(id, solicitud, authentication.getName());
     }
 
-    @GetMapping("/registros/{id}/documento")
+    @GetMapping({ "/registros/{id}/documento", "/registros/{id}/documento/{tipo}" })
     @PreAuthorize("hasAnyRole('ALUMNO','COORDINADOR','JEFA_DGTV')")
-    @Operation(summary = "Ver documento del registro", description = "Rol: [Alumno][Coordinador][Jefa DGTV: solo consulta]")
-    public ResponseEntity<Resource> obtenerDocumento(@PathVariable Integer id, Authentication authentication) {
+    @Operation(summary = "Ver documento del registro (curp, domicilio, ine, intercultural, constancia)",
+            description = "Rol: [Alumno][Coordinador][Jefa DGTV: solo consulta]")
+    public ResponseEntity<Resource> obtenerDocumento(
+            @PathVariable Integer id,
+            @PathVariable(required = false) String tipo,
+            Authentication authentication) {
         boolean coordinacion = authentication.getAuthorities().stream()
                 .anyMatch(authority -> authority.getAuthority().equals("ROLE_COORDINADOR")
+                        || authority.getAuthority().equals("ROLE_ADMIN")
                         || authority.getAuthority().equals("ROLE_JEFA_DGTV"));
         LenguaMaternaService.DocumentoLengua documento = lenguaService.obtenerDocumento(
-                id, authentication.getName(), coordinacion);
+                id, tipo, authentication.getName(), coordinacion);
+        String extension = documento.tipoContenido().contains("pdf") ? ".pdf" : documento.tipoContenido().contains("png") ? ".png" : ".jpg";
+        String filename = "lengua-materna-" + id + (tipo != null ? "-" + tipo : "") + extension;
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(documento.tipoContenido()))
-                .header(HttpHeaders.CONTENT_DISPOSITION, "inline")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + filename + "\"")
                 .header("X-Content-Type-Options", "nosniff")
                 .body(documento.recurso());
     }

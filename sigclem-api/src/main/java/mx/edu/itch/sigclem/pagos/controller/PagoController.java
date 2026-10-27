@@ -51,7 +51,9 @@ public class PagoController {
             @RequestParam(defaultValue = "false") boolean incluirInactivos,
             Authentication authentication) {
         boolean coordinacion = authentication.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_COORDINADOR"));
+                .anyMatch(a -> a.getAuthority().equals("ROLE_COORDINADOR")
+                        || a.getAuthority().equals("ROLE_ADMIN")
+                        || a.getAuthority().equals("ROLE_JEFA_DGTV"));
         return pagoService.listarConceptos(incluirInactivos && coordinacion);
     }
 
@@ -92,13 +94,15 @@ public class PagoController {
     }
 
     @GetMapping("/tarifas")
-    @PreAuthorize("hasAnyRole('ALUMNO','COORDINADOR')")
+    @PreAuthorize("hasAnyRole('ALUMNO','COORDINADOR','JEFA_DGTV')")
     @Operation(summary = "Listar tarifas", description = "Rol: [Alumno][Coordinador]")
     public List<TarifaDTO> tarifas(
             @RequestParam(defaultValue = "false") boolean incluirInactivas,
             Authentication authentication) {
         boolean coordinacion = authentication.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_COORDINADOR"));
+                .anyMatch(a -> a.getAuthority().equals("ROLE_COORDINADOR")
+                        || a.getAuthority().equals("ROLE_ADMIN")
+                        || a.getAuthority().equals("ROLE_JEFA_DGTV"));
         return pagoService.listarTarifas(incluirInactivas && coordinacion);
     }
 

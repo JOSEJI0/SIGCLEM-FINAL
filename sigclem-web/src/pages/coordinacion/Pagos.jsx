@@ -1,28 +1,38 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, Eye, Pencil, Plus, Power, Receipt, RefreshCw, Search, Tags, Trash2, X } from 'lucide-react';
+import {
+  Check, CreditCard, Eye, Pencil, Plus, Power, Receipt, RefreshCw, Search, Tags, Trash2, X,
+} from 'lucide-react';
 import { buscarAlumnos } from '../../api/alumnos';
 import { mensajeError } from '../../api/cliente';
 import { obtenerPeriodos } from '../../api/catalogos';
 import { listarGrupos } from '../../api/grupos';
 import {
   activarConcepto, capturarDatosComprobante, crearAutorizacion, crearConcepto, descargarComprobante,
-  desactivarConcepto, editarConcepto, eliminarConcepto, listarCargos, listarComprobantesPendientes, listarConceptos,
-  rechazarComprobante, reverificarComprobante, validarComprobante,
+  desactivarConcepto, editarConcepto, eliminarConcepto, listarCargos, listarComprobantesPendientes,
+  listarConceptos, listarTodosLosCargos, rechazarComprobante, reverificarComprobante, validarComprobante,
 } from '../../api/pagos';
 import { Alerta, Boton, Campo, Cargando, Insignia, Tarjeta, claseEntrada } from '../../components/ui';
 import { ConfirmacionDoble, Modal } from '../../components/Modal';
 import VerificacionComprobante, { tieneAlertaVerificacion } from '../../components/VerificacionComprobante';
 import Paginador, { usePaginacion } from '../../components/Paginador';
 import { useVisorDocumento } from '../../components/VisorDocumento';
+import { useAuth } from '../../auth/AuthContext';
+import { esSoloConsulta } from '../../auth/roles';
+import { Indicador } from '../../components/Graficas';
 
 function moneda(valor) {
-  return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(valor);
+  return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(valor || 0);
 }
+
+const fecha = (iso) => (iso ? new Date(iso.length === 10 ? `${iso}T00:00:00` : iso).toLocaleDateString('es-MX') : '—');
 
 const datosManualesVacios = () => ({ uuidCfdi: '', rfcEmisor: '', total: '', selloFinal: '' });
 
-export default function Pagos() {
+export default function Pagos({ soloLectura = false }) {
+  const { perfil } = useAuth();
+  const esSoloLectura = soloLectura || esSoloConsulta(perfil?.rol);
   const verDocumento = useVisorDocumento();
+
   const [edicionConcepto, setEdicionConcepto] = useState(null);
   const [borrarConcepto, setBorrarConcepto] = useState(null);
   const [conceptos, setConceptos] = useState([]);
@@ -32,11 +42,19 @@ export default function Pagos() {
   const [nombreConcepto, setNombreConcepto] = useState('');
   const [idTarifa, setIdTarifa] = useState('');
   const [monto, setMonto] = useState('');
+
+  // Búsqueda individual de alumno
   const [busquedaAlumno, setBusquedaAlumno] = useState('');
   const [alumnos, setAlumnos] = useState([]);
   const [alumno, setAlumno] = useState(null);
   const [cargos, setCargos] = useState([]);
   const [idPeriodo, setIdPeriodo] = useState('');
+
+  // Listado general de cargos emitidos
+  const [cargosEmitidos, setCargosEmitidos] = useState(null);
+  const [filtroEstatusCargo, setFiltroEstatusCargo] = useState('');
+  const [filtroTextoCargo, setFiltroTextoCargo] = useState('');
+
   const [idGrupo, setIdGrupo] = useState({});
   const [motivos, setMotivos] = useState({});
   const [datosManuales, setDatosManuales] = useState({});
@@ -49,10 +67,11 @@ export default function Pagos() {
     setCargando(true);
     setError('');
     try {
-      const [conceptosCargados, periodosCargados, pendientes] = await Promise.all([
+      const [conceptosCargados, periodosCargados, pendientes, cargosGlobales] = await Promise.all([
         listarConceptos(true),
         obtenerPeriodos(),
         listarComprobantesPendientes(),
+        listarTodosLosCargos().catch(() => []),
       ]);
       const periodosPendientes = [...new Set(pendientes.map((c) => c.idPeriodo))];
       const gruposPorPeriodo = await Promise.all(periodosPendientes.map((periodoId) => listarGrupos(periodoId)));
@@ -60,6 +79,7 @@ export default function Pagos() {
       setPeriodos(periodosCargados);
       setComprobantes(pendientes);
       setGrupos(gruposPorPeriodo.flat());
+      setCargosEmitidos(cargosGlobales);
     } catch (e) {
       setError(mensajeError(e));
     } finally {
@@ -79,6 +99,18 @@ export default function Pagos() {
   }, [comprobantes, filtroPendientes, soloAlertas]);
   // Al inicio del semestre puede haber cientos de comprobantes: se muestran de 10 en 10.
   const paginacionPendientes = usePaginacion(pendientesFiltrados, 10);
+
+  // Cargos generales filtrados
+  const cargosVisibles = useMemo(() => (cargosEmitidos || []).filter((c) => {
+    const t = filtroTextoCargo.trim().toLowerCase();
+    return (!filtroEstatusCargo || c.estatus === filtroEstatusCargo)
+      && (!t || `${c.alumno} ${c.numeroControl} ${c.concepto}`.toLowerCase().includes(t));
+  }), [cargosEmitidos, filtroEstatusCargo, filtroTextoCargo]);
+  const paginacionCargos = usePaginacion(cargosVisibles, 20);
+
+  const cobrado = (cargosEmitidos || []).reduce((s, c) => s + Number(c.montoEsperado) - Number(c.saldoPendiente), 0);
+  const porCobrar = (cargosEmitidos || []).reduce((s, c) => s + Number(c.saldoPendiente), 0);
+
   async function buscar(evento) {
     evento.preventDefault();
     setError('');
@@ -107,7 +139,7 @@ export default function Pagos() {
 
   async function emitirCargo(evento) {
     evento.preventDefault();
-    if (!alumno) return;
+    if (!alumno || esSoloLectura) return;
     setGuardando('cargo');
     setError('');
     setAviso('');
@@ -119,6 +151,7 @@ export default function Pagos() {
       });
       setAviso(`Cargo #${cargo.id} emitido o ya existente para ${alumno.nombreCompleto}.`);
       setCargos(await listarCargos(alumno.numeroControl));
+      listarTodosLosCargos().then(setCargosEmitidos).catch(() => {});
     } catch (e) {
       setError(mensajeError(e));
     } finally {
@@ -128,6 +161,7 @@ export default function Pagos() {
 
   async function guardarConcepto(evento) {
     evento.preventDefault();
+    if (esSoloLectura) return;
     setGuardando('concepto');
     setError('');
     setAviso('');
@@ -145,6 +179,7 @@ export default function Pagos() {
   }
 
   async function activarConceptoExistente(id) {
+    if (esSoloLectura) return;
     setGuardando(`concepto-${id}`);
     setError('');
     setAviso('');
@@ -160,6 +195,7 @@ export default function Pagos() {
   }
 
   async function desactivarConceptoExistente(id) {
+    if (esSoloLectura) return;
     setGuardando(`concepto-${id}`);
     setError('');
     setAviso('');
@@ -182,6 +218,7 @@ export default function Pagos() {
   }
 
   async function capturarManual(comprobante) {
+    if (esSoloLectura) return;
     const datos = { ...datosManualesVacios(), ...datosManuales[comprobante.id] };
     if (!datos.uuidCfdi.trim() || !datos.rfcEmisor.trim() || !datos.total.trim()) {
       setError(`Completa UUID, RFC e importe para el comprobante de ${comprobante.alumno}.`);
@@ -207,6 +244,7 @@ export default function Pagos() {
   }
 
   async function validar(comprobante) {
+    if (esSoloLectura) return;
     const balance = Number(comprobante.saldoPendiente);
     const esLiquidacion = Math.abs(Number(comprobante.total) - balance) < 0.005;
     const grupoId = idGrupo[comprobante.id] || '';
@@ -236,6 +274,7 @@ export default function Pagos() {
   }
 
   async function rechazar(comprobante) {
+    if (esSoloLectura) return;
     const motivo = motivos[comprobante.id]?.trim();
     if (!motivo) {
       setError(`Escribe el motivo de rechazo del comprobante de ${comprobante.alumno}.`);
@@ -256,6 +295,7 @@ export default function Pagos() {
   }
 
   async function reverificar(comprobante) {
+    if (esSoloLectura) return;
     setGuardando(`verificar-${comprobante.id}`);
     setError('');
     setAviso('');
@@ -284,12 +324,87 @@ export default function Pagos() {
     <div className="grid gap-[18px]">
       <div>
         <h1 className="flex items-center gap-2 text-xl font-bold"><Receipt className="h-5 w-5" /> Pagos y comprobantes</h1>
-        <p className="mt-1 text-sm text-tenue">Emite cargos, registra conceptos y revisa los abonos enviados por los alumnos.</p>
+        <p className="mt-1 text-sm text-tenue">
+          {esSoloLectura
+            ? 'Supervisión y consulta de cargos, saldos, conceptos y comprobantes de pago de los alumnos.'
+            : 'Emite cargos, registra conceptos y revisa los abonos enviados por los alumnos.'}
+        </p>
       </div>
+
+      {esSoloLectura && (
+        <Alerta tipo="info">
+          <b>Modo de solo consulta.</b> Puedes consultar la información de pagos, revisar si los alumnos ya pagaron o tienen adeudo, y ver los comprobantes enviados. La emisión de cargos y validación corresponden a la coordinación.
+        </Alerta>
+      )}
+
       {error && <Alerta tipo="error">{error}</Alerta>}
       {aviso && <Alerta tipo="ok">{aviso}</Alerta>}
 
-      <Tarjeta titulo="Emitir cargo a un alumno" icono={Search}>
+      {cargosEmitidos && (
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Indicador etiqueta="Cobrado" valor={moneda(cobrado)} icono={CreditCard} tono="ok" />
+          <Indicador etiqueta="Por cobrar" valor={moneda(porCobrar)} icono={CreditCard} tono="aviso" />
+          <Indicador etiqueta="Comprobantes en revisión" valor={comprobantes.length} icono={Receipt} />
+        </div>
+      )}
+
+      {/* Listado general de cargos emitidos */}
+      {cargosEmitidos && (
+        <Tarjeta titulo="Cargos emitidos" icono={CreditCard} extra={`${cargosVisibles.length} de ${cargosEmitidos.length}`}>
+          <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_200px]">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-tenue" />
+              <input className={`${claseEntrada} pl-9`} placeholder="Buscar alumno, número de control o concepto" value={filtroTextoCargo}
+                onChange={(e) => setFiltroTextoCargo(e.target.value)} aria-label="Buscar cargo" />
+            </div>
+            <select className={claseEntrada} value={filtroEstatusCargo} onChange={(e) => setFiltroEstatusCargo(e.target.value)} aria-label="Estatus del cargo">
+              <option value="">Todos los estatus</option>
+              <option value="Pendiente">Pendiente</option>
+              <option value="Parcial">Parcial</option>
+              <option value="Liquidada">Liquidada</option>
+            </select>
+          </div>
+          {cargosVisibles.length === 0 ? <p className="text-sm text-tenue">No hay cargos que coincidan con la búsqueda.</p> : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[820px] text-left text-[13px]">
+                <thead className="border-b border-linea text-xs text-tenue">
+                  <tr>
+                    <th className="px-2 py-2">Alumno</th>
+                    <th className="px-2 py-2">Concepto</th>
+                    <th className="px-2 py-2">Periodo</th>
+                    <th className="px-2 py-2">Emisión</th>
+                    <th className="px-2 py-2 text-right">Monto</th>
+                    <th className="px-2 py-2 text-right">Saldo</th>
+                    <th className="px-2 py-2">Estatus</th>
+                    <th className="px-2 py-2">Comprobantes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginacionCargos.visibles.map((c) => (
+                    <tr key={c.id} className="border-b border-linea last:border-0">
+                      <td className="px-2 py-2.5">
+                        <div className="font-semibold">{c.alumno}</div>
+                        <div className="text-xs text-tenue">{c.numeroControl}</div>
+                      </td>
+                      <td className="px-2 py-2.5">{c.concepto}{c.nivel ? ` · ${c.nivel}` : ''}</td>
+                      <td className="px-2 py-2.5">{c.periodo}</td>
+                      <td className="px-2 py-2.5">{fecha(c.fechaEmision)}</td>
+                      <td className="px-2 py-2.5 text-right">{moneda(c.montoEsperado)}</td>
+                      <td className="px-2 py-2.5 text-right font-semibold">{moneda(c.saldoPendiente)}</td>
+                      <td className="px-2 py-2.5"><Insignia estatus={c.estatus} /></td>
+                      <td className="px-2 py-2.5">{c.comprobantes}{c.comprobantesPendientes ? ` (${c.comprobantesPendientes} en revisión)` : ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <Paginador paginacion={paginacionCargos} />
+            </div>
+          )}
+        </Tarjeta>
+      )}
+
+      {/* Consulta o emisión de cargos por alumno individual */}
+      <Tarjeta titulo={esSoloLectura ? 'Consultar cargos de un alumno' : 'Emitir cargo a un alumno'} icono={Search}>
         <form className="flex flex-col gap-3 sm:flex-row sm:items-end" onSubmit={buscar}>
           <Campo etiqueta="Nombre o número de control" id="buscarAlumnoPago">
             <input className={claseEntrada} id="buscarAlumnoPago" required maxLength="100" value={busquedaAlumno} onChange={(e) => setBusquedaAlumno(e.target.value)} />
@@ -308,32 +423,39 @@ export default function Pagos() {
         {alumno && (
           <div className="mt-4 grid gap-3">
             <p className="text-sm"><b>Alumno seleccionado:</b> {alumno.nombreCompleto} · {alumno.numeroControl}</p>
-            <form className="grid gap-3 sm:grid-cols-3 sm:items-end" onSubmit={emitirCargo}>
-              <Campo etiqueta="Concepto" id="tarifaCargo" ayuda="En cursos, el cargo se liga al nivel que le toca al alumno.">
-                <select className={claseEntrada} id="tarifaCargo" required value={idTarifa} onChange={(e) => setIdTarifa(e.target.value)}>
-                  <option value="">Selecciona un concepto</option>
-                  {conceptosActivos.map((item) => (
-                    <option key={item.id} value={item.idTarifa}>{item.nombre} — {moneda(item.monto)}</option>
-                  ))}
-                </select>
-              </Campo>
-              <Campo etiqueta="Periodo" id="periodoCargo">
-                <select className={claseEntrada} id="periodoCargo" required value={idPeriodo} onChange={(e) => setIdPeriodo(e.target.value)}>
-                  <option value="">Selecciona un periodo</option>
-                  {periodos.map((item) => <option key={item.id} value={item.id}>{item.nombre}</option>)}
-                </select>
-              </Campo>
-              <Boton type="submit" disabled={!idTarifa || !idPeriodo || guardando !== ''}>
-                {guardando === 'cargo' ? 'Emitiendo…' : 'Emitir cargo'}
-              </Boton>
-            </form>
+            {!esSoloLectura && (
+              <form className="grid gap-3 sm:grid-cols-3 sm:items-end" onSubmit={emitirCargo}>
+                <Campo etiqueta="Concepto" id="tarifaCargo" ayuda="En cursos, el cargo se liga al nivel que le toca al alumno.">
+                  <select className={claseEntrada} id="tarifaCargo" required value={idTarifa} onChange={(e) => setIdTarifa(e.target.value)}>
+                    <option value="">Selecciona un concepto</option>
+                    {conceptosActivos.map((item) => (
+                      <option key={item.id} value={item.idTarifa}>{item.nombre} — {moneda(item.monto)}</option>
+                    ))}
+                  </select>
+                </Campo>
+                <Campo etiqueta="Periodo" id="periodoCargo">
+                  <select className={claseEntrada} id="periodoCargo" required value={idPeriodo} onChange={(e) => setIdPeriodo(e.target.value)}>
+                    <option value="">Selecciona un periodo</option>
+                    {periodos.map((item) => <option key={item.id} value={item.id}>{item.nombre}</option>)}
+                  </select>
+                </Campo>
+                <Boton type="submit" disabled={!idTarifa || !idPeriodo || guardando !== ''}>
+                  {guardando === 'cargo' ? 'Emitiendo…' : 'Emitir cargo'}
+                </Boton>
+              </form>
+            )}
             <div className="grid gap-2">
               <h3 className="text-sm font-semibold">Cargos existentes</h3>
-              {cargos.length === 0 ? <p className="text-sm text-tenue">Este alumno no tiene cargos.</p> : cargos.map((cargo) => (
-                <div key={cargo.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-linea p-3 text-sm">
-                  <span>{cargo.concepto}{cargo.nivel ? ` · ${cargo.nivel}` : ''} · {cargo.periodo}</span>
-                  <span>Saldo: <b>{moneda(cargo.saldoPendiente)}</b></span>
-                  <Insignia estatus={cargo.estatusCargo}>{cargo.estatusCargo}</Insignia>
+              {cargos.length === 0 ? <p className="text-sm text-tenue">Este alumno no tiene cargos registrados.</p> : cargos.map((cargo) => (
+                <div key={cargo.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-linea p-3 text-sm">
+                  <div>
+                    <div className="font-semibold">{cargo.concepto}{cargo.nivel ? ` · ${cargo.nivel}` : ''} · {cargo.periodo}</div>
+                    <div className="text-xs text-tenue">Monto esperado: {moneda(cargo.montoEsperado || cargo.monto)} · Emisión: {fecha(cargo.fechaEmision)}</div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span>Saldo: <b>{moneda(cargo.saldoPendiente)}</b></span>
+                    <Insignia estatus={cargo.estatusCargo || cargo.estatus}>{cargo.estatusCargo || cargo.estatus}</Insignia>
+                  </div>
                 </div>
               ))}
             </div>
@@ -341,28 +463,37 @@ export default function Pagos() {
         )}
       </Tarjeta>
 
+      {/* Conceptos de pago */}
       <Tarjeta titulo="Conceptos de pago" icono={Tags}>
         <p className="mb-3 text-[13px] text-tenue">
-          Cada concepto tiene un solo monto que aplica a todos los niveles. Si cambias un monto, los cargos ya emitidos
-          conservan el anterior.
+          {esSoloLectura
+            ? 'Catálogo de conceptos y tarifas autorizadas para el ciclo escolar.'
+            : 'Cada concepto tiene un solo monto que aplica a todos los niveles. Si cambias un monto, los cargos ya emitidos conservan el anterior.'}
         </p>
-        <form className="grid gap-3 sm:grid-cols-[1fr_180px_auto] sm:items-end" onSubmit={guardarConcepto}>
-          <Campo etiqueta="Nuevo concepto" id="nuevoConcepto">
-            <input className={claseEntrada} id="nuevoConcepto" required maxLength="30" placeholder="Ej. Reposición de credencial"
-              value={nombreConcepto} onChange={(e) => setNombreConcepto(e.target.value)} />
-          </Campo>
-          <Campo etiqueta="Monto (MXN)" id="montoConcepto">
-            <input className={claseEntrada} id="montoConcepto" type="number" required min="0.01" step="0.01"
-              value={monto} onChange={(e) => setMonto(e.target.value)} />
-          </Campo>
-          <Boton type="submit" disabled={guardando !== '' || !nombreConcepto.trim() || !monto}>
-            <Plus className="h-4 w-4" /> {guardando === 'concepto' ? 'Guardando…' : 'Agregar concepto'}
-          </Boton>
-        </form>
+        {!esSoloLectura && (
+          <form className="grid gap-3 sm:grid-cols-[1fr_180px_auto] sm:items-end" onSubmit={guardarConcepto}>
+            <Campo etiqueta="Nuevo concepto" id="nuevoConcepto">
+              <input className={claseEntrada} id="nuevoConcepto" required maxLength="30" placeholder="Ej. Reposición de credencial"
+                value={nombreConcepto} onChange={(e) => setNombreConcepto(e.target.value)} />
+            </Campo>
+            <Campo etiqueta="Monto (MXN)" id="montoConcepto">
+              <input className={claseEntrada} id="montoConcepto" type="number" required min="0.01" step="0.01"
+                value={monto} onChange={(e) => setMonto(e.target.value)} />
+            </Campo>
+            <Boton type="submit" disabled={guardando !== '' || !nombreConcepto.trim() || !monto}>
+              <Plus className="h-4 w-4" /> {guardando === 'concepto' ? 'Guardando…' : 'Agregar concepto'}
+            </Boton>
+          </form>
+        )}
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[560px] text-left text-sm">
             <thead className="border-b border-linea text-xs text-tenue">
-              <tr><th className="px-2 py-2">Concepto</th><th className="px-2 py-2">Monto</th><th className="px-2 py-2">Estado</th><th className="px-2 py-2 text-right">Acciones</th></tr>
+              <tr>
+                <th className="px-2 py-2">Concepto</th>
+                <th className="px-2 py-2">Monto</th>
+                <th className="px-2 py-2">Estado</th>
+                {!esSoloLectura && <th className="px-2 py-2 text-right">Acciones</th>}
+              </tr>
             </thead>
             <tbody>
               {conceptos.map((item) => (
@@ -370,21 +501,23 @@ export default function Pagos() {
                   <td className="px-2 py-3 font-semibold">{item.nombre}</td>
                   <td className="px-2 py-3">{item.monto != null ? moneda(item.monto) : <span className="text-tenue">Sin monto</span>}</td>
                   <td className="px-2 py-3"><Insignia estatus={item.activo ? 'Activo' : 'Inactivo'} tono={item.activo ? 'ok' : 'neutro'} /></td>
-                  <td className="px-2 py-3">
-                    <div className="flex flex-wrap justify-end gap-2">
-                      <Boton variante="secundario" type="button" disabled={guardando !== ''}
-                        onClick={() => setEdicionConcepto({ id: item.id, nombre: item.nombre, monto: item.monto ?? '', sistema: item.nombre === 'Curso de nivel', error: '' })}>
-                        <Pencil className="h-3.5 w-3.5" /> Editar
-                      </Boton>
-                      <Boton variante="secundario" type="button" disabled={guardando !== ''}
-                        onClick={() => (item.activo ? desactivarConceptoExistente(item.id) : activarConceptoExistente(item.id))}>
-                        <Power className="h-3.5 w-3.5" /> {item.activo ? 'Desactivar' : 'Activar'}
-                      </Boton>
-                      <Boton variante="peligro" type="button" disabled={guardando !== ''} onClick={() => setBorrarConcepto(item)}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Boton>
-                    </div>
-                  </td>
+                  {!esSoloLectura && (
+                    <td className="px-2 py-3">
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <Boton variante="secundario" type="button" disabled={guardando !== ''}
+                          onClick={() => setEdicionConcepto({ id: item.id, nombre: item.nombre, monto: item.monto ?? '', sistema: item.nombre === 'Curso de nivel', error: '' })}>
+                          <Pencil className="h-3.5 w-3.5" /> Editar
+                        </Boton>
+                        <Boton variante="secundario" type="button" disabled={guardando !== ''}
+                          onClick={() => (item.activo ? desactivarConceptoExistente(item.id) : activarConceptoExistente(item.id))}>
+                          <Power className="h-3.5 w-3.5" /> {item.activo ? 'Desactivar' : 'Activar'}
+                        </Boton>
+                        <Boton variante="peligro" type="button" disabled={guardando !== ''} onClick={() => setBorrarConcepto(item)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Boton>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -392,6 +525,7 @@ export default function Pagos() {
         </div>
       </Tarjeta>
 
+      {/* Comprobantes pendientes */}
       <section className="grid gap-3" aria-label="Comprobantes pendientes de validación">
         <h2 className="text-base font-semibold">Comprobantes pendientes ({comprobantes.length})</h2>
         {comprobantes.length > 0 && (
@@ -437,24 +571,26 @@ export default function Pagos() {
                   <Boton variante="secundario" type="button" onClick={() => descargar(comprobante)}>
                     <Eye className="h-4 w-4" /> Ver comprobante {(comprobante.tipoArchivo || 'jpg').toUpperCase()}
                   </Boton>
-                  <Boton variante="secundario" type="button" disabled={guardando !== ''} onClick={() => reverificar(comprobante)}>
-                    <RefreshCw className="h-4 w-4" /> {guardando === `verificar-${comprobante.id}` ? 'Verificando…' : 'Reverificar (QR, SAT y descripción)'}
-                  </Boton>
+                  {!esSoloLectura && (
+                    <Boton variante="secundario" type="button" disabled={guardando !== ''} onClick={() => reverificar(comprobante)}>
+                      <RefreshCw className="h-4 w-4" /> {guardando === `verificar-${comprobante.id}` ? 'Verificando…' : 'Reverificar (QR, SAT y descripción)'}
+                    </Boton>
+                  )}
                 </div>
                 {comprobante.estadoSat === 'Cancelado' ? (
-                  <Alerta tipo="error" className="mt-3">El SAT reporta este CFDI como cancelado: recházalo.</Alerta>
+                  <Alerta tipo="error" className="mt-3">El SAT reporta este CFDI como cancelado: debe ser rechazado.</Alerta>
                 ) : tieneAlertaVerificacion(comprobante) ? (
                   <Alerta tipo="error" className="mt-3">
-                    La verificación automática encontró diferencias. Revisa el documento antes de aplicar el abono.
+                    La verificación automática encontró diferencias. Revisar el documento antes de aplicar el abono.
                   </Alerta>
                 ) : (
                   <Alerta tipo="aviso" className="mt-3">
                     {requiereCaptura
-                      ? 'No se pudo leer el QR del comprobante; captura los datos del CFDI impresos en el documento.'
-                      : 'Confirma que el documento corresponda al alumno y al concepto antes de aplicar el abono.'}
+                      ? 'No se pudo leer el QR del comprobante; requiere captura de los datos impresos en el documento.'
+                      : 'Verifica que el documento corresponda al alumno y al concepto.'}
                   </Alerta>
                 )}
-                {requiereCaptura && (
+                {!esSoloLectura && requiereCaptura && (
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <Campo etiqueta="UUID / Folio fiscal" id={`uuidManual-${comprobante.id}`}>
                       <input className={claseEntrada} id={`uuidManual-${comprobante.id}`} maxLength="36" value={datos.uuidCfdi} onChange={(e) => actualizarDatosManuales(comprobante.id, 'uuidCfdi', e.target.value)} />
@@ -476,7 +612,7 @@ export default function Pagos() {
                 {comprobante.grupoAsignado && (
                   <Alerta tipo="info" className="mt-3">El alumno ya está asignado al grupo <b>{comprobante.grupoAsignado}</b>; al liquidar, el pago se liga a esa inscripción.</Alerta>
                 )}
-                {!requiereCaptura && !comprobante.grupoAsignado && comprobante.concepto === 'Curso de nivel' && esLiquidacion && (
+                {!esSoloLectura && !requiereCaptura && !comprobante.grupoAsignado && comprobante.concepto === 'Curso de nivel' && esLiquidacion && (
                   <div className="mt-3">
                     <Campo etiqueta="Grupo para inscripción (solo al liquidar)" id={`grupo-${comprobante.id}`}>
                       <select className={claseEntrada} id={`grupo-${comprobante.id}`} required value={idGrupo[comprobante.id] || ''} onChange={(e) => setIdGrupo((previos) => ({ ...previos, [comprobante.id]: e.target.value }))}>
@@ -489,23 +625,28 @@ export default function Pagos() {
                     {gruposElegibles.length === 0 && <p className="mt-1 text-xs text-tenue">No hay grupos abiertos con cupo para el nivel y periodo autorizados.</p>}
                   </div>
                 )}
-                <Campo etiqueta="Motivo de rechazo (solo si rechazas)" id={`motivo-${comprobante.id}`}>
-                  <textarea className={claseEntrada} id={`motivo-${comprobante.id}`} rows="2" maxLength="200" value={motivos[comprobante.id] || ''} onChange={(e) => setMotivos((previos) => ({ ...previos, [comprobante.id]: e.target.value }))} />
-                </Campo>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Boton variante="exito" type="button" disabled={guardando !== '' || requiereCaptura || comprobante.estadoSat === 'Cancelado' || (comprobante.concepto === 'Curso de nivel' && esLiquidacion && !idGrupo[comprobante.id] && !comprobante.grupoAsignado)} onClick={() => validar(comprobante)}>
-                    <Check className="h-4 w-4" /> {guardando === `comprobante-${comprobante.id}` ? 'Procesando…' : esLiquidacion ? 'Validar, liquidar e inscribir' : 'Validar abono'}
-                  </Boton>
-                  <Boton variante="peligro" type="button" disabled={guardando !== '' || !motivos[comprobante.id]?.trim()} onClick={() => rechazar(comprobante)}>
-                    <X className="h-4 w-4" /> Rechazar
-                  </Boton>
-                </div>
+                {!esSoloLectura && (
+                  <>
+                    <Campo etiqueta="Motivo de rechazo (solo si rechazas)" id={`motivo-${comprobante.id}`}>
+                      <textarea className={claseEntrada} id={`motivo-${comprobante.id}`} rows="2" maxLength="200" value={motivos[comprobante.id] || ''} onChange={(e) => setMotivos((previos) => ({ ...previos, [comprobante.id]: e.target.value }))} />
+                    </Campo>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Boton variante="exito" type="button" disabled={guardando !== '' || requiereCaptura || comprobante.estadoSat === 'Cancelado' || (comprobante.concepto === 'Curso de nivel' && esLiquidacion && !idGrupo[comprobante.id] && !comprobante.grupoAsignado)} onClick={() => validar(comprobante)}>
+                        <Check className="h-4 w-4" /> {guardando === `comprobante-${comprobante.id}` ? 'Procesando…' : esLiquidacion ? 'Validar, liquidar e inscribir' : 'Validar abono'}
+                      </Boton>
+                      <Boton variante="peligro" type="button" disabled={guardando !== '' || !motivos[comprobante.id]?.trim()} onClick={() => rechazar(comprobante)}>
+                        <X className="h-4 w-4" /> Rechazar
+                      </Boton>
+                    </div>
+                  </>
+                )}
               </Tarjeta>
             );
           })}
         <Paginador paginacion={paginacionPendientes} />
       </section>
-      {edicionConcepto && (
+
+      {!esSoloLectura && edicionConcepto && (
         <Modal titulo="Editar concepto de pago" onCerrar={() => setEdicionConcepto(null)} ancho="max-w-md">
           <form className="grid gap-4" onSubmit={async (e) => {
             e.preventDefault();
@@ -536,7 +677,8 @@ export default function Pagos() {
           </form>
         </Modal>
       )}
-      {borrarConcepto && (
+
+      {!esSoloLectura && borrarConcepto && (
         <ConfirmacionDoble titulo="Eliminar concepto de pago" palabra="ELIMINAR" textoBoton="Eliminar concepto"
           mensaje={<>Se eliminará el concepto <b>{borrarConcepto.nombre}</b>. Si ya se emitieron cargos con él,
             el sistema no lo permitirá y deberás desactivarlo.</>}

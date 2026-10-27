@@ -36,8 +36,8 @@ public class CuentaController {
     }
 
     @PutMapping("/mi-contrasena")
-    @PreAuthorize("hasRole('COORDINADOR')")
-    @Operation(summary = "Cambiar mi contraseña", description = "Rol: [Coordinador]. Requiere la contraseña actual.")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Cambiar mi contraseña", description = "Rol: [Cualquier usuario autenticado]. Requiere la contraseña actual.")
     public ResponseEntity<Void> cambiarPropia(@Valid @RequestBody CambioPropioRequest req, Authentication authentication) {
         cuentaService.cambiarPropia(authentication.getName(), req.contrasenaActual(), req.contrasenaNueva());
         auditoria.registrar(AccionAuditoria.CONTRASENA_PROPIA, RegistroAuditoria.OK, null);
@@ -46,7 +46,8 @@ public class CuentaController {
 
     @PutMapping("/alumnos/{numeroControl}/contrasena")
     @PreAuthorize("hasRole('COORDINADOR')")
-    @Operation(summary = "Asignar una nueva contraseña a un alumno", description = "Rol: [Coordinador]")
+    @Operation(summary = "Asignar una nueva contraseña a un alumno",
+            description = "Rol: [Coordinador]. Admite cualquier contraseña no vacía de hasta 72 bytes UTF-8.")
     public ResponseEntity<Void> asignarAlumno(@PathVariable String numeroControl, @Valid @RequestBody AsignacionRequest req) {
         cuentaService.asignarAlumno(numeroControl, req.contrasena());
         auditoria.registrar(AccionAuditoria.CONTRASENA_ASIGNADA, RegistroAuditoria.OK,

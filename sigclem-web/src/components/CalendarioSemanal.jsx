@@ -1,6 +1,7 @@
 export const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 const DIAS_CORTOS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 const ALTO_HORA = 44;
+const ANCHO_CARRIL = 150;
 
 /** Colores por nivel (1 a 10) para distinguir los grupos en el calendario. */
 const COLORES = [
@@ -18,11 +19,47 @@ export const minutos = (hhmm) => {
 };
 export const horaCorta = (hhmm) => String(hhmm || '').slice(0, 5);
 
+/** Distribuye sesiones que coinciden en el tiempo en carriles paralelos dentro del mismo día. */
+export function distribuirCarriles(sesiones) {
+  const ordenadas = [...sesiones].sort((a, b) => minutos(a.inicio) - minutos(b.inicio) || minutos(a.fin) - minutos(b.fin));
+  const distribuidas = [];
+  let grupo = [];
+  let finGrupo = -1;
+
+  const guardarGrupo = () => {
+    const carriles = [];
+    const asignadas = grupo.map((sesion) => {
+      const inicio = minutos(sesion.inicio);
+      let carril = carriles.findIndex((fin) => fin <= inicio);
+      if (carril === -1) carril = carriles.length;
+      carriles[carril] = minutos(sesion.fin);
+      return { ...sesion, carril };
+    });
+    distribuidas.push(...asignadas.map((sesion) => ({ ...sesion, totalCarriles: carriles.length })));
+    grupo = [];
+    finGrupo = -1;
+  };
+
+  ordenadas.forEach((sesion) => {
+    const inicio = minutos(sesion.inicio);
+    if (grupo.length && inicio >= finGrupo) guardarGrupo();
+    grupo.push(sesion);
+    finGrupo = Math.max(finGrupo, minutos(sesion.fin));
+  });
+  if (grupo.length) guardarGrupo();
+
+  return distribuidas;
+}
+
 /**
  * Calendario semanal (lunes a sábado). {@code sesiones}: [{ clave, dia, inicio, fin, titulo, detalle, color,
  * atenuada, onClick }]. Si se recibe {@code onSeleccionarHueco}, cada hora vacía es clicable para agregar una sesión.
  */
 export default function CalendarioSemanal({ sesiones = [], onSeleccionarHueco, horaMinima = 7, horaMaxima = 21 }) {
+  const sesionesPorDia = DIAS.map((_, indice) =>
+    distribuirCarriles(sesiones.filter((sesion) => Number(sesion.dia) === indice + 1)));
+  const anchoDias = sesionesPorDia.map((dia) =>
+    Math.max(1, ...dia.map((sesion) => sesion.totalCarriles)) * ANCHO_CARRIL);
   const inicios = sesiones.map((s) => Math.floor(minutos(s.inicio) / 60));
   const fines = sesiones.map((s) => Math.ceil(minutos(s.fin) / 60));
   const desde = Math.min(horaMinima, ...inicios);
@@ -31,7 +68,10 @@ export default function CalendarioSemanal({ sesiones = [], onSeleccionarHueco, h
 
   return (
     <div className="overflow-x-auto rounded-lg border border-linea">
-      <div className="grid min-w-[640px] grid-cols-[52px_repeat(6,minmax(0,1fr))]">
+      <div className="grid" style={{
+        gridTemplateColumns: `52px ${anchoDias.map((ancho) => `${ancho}px`).join(' ')}`,
+        minWidth: `${52 + anchoDias.reduce((total, ancho) => total + ancho, 0)}px`,
+      }}>
         <div className="sticky top-0 z-10 border-b border-linea bg-white" />
         {DIAS_CORTOS.map((d) => (
           <div key={d} className="border-b border-l border-linea bg-white py-2 text-center text-xs font-semibold text-tenue">{d}</div>
@@ -47,6 +87,7 @@ export default function CalendarioSemanal({ sesiones = [], onSeleccionarHueco, h
 
         {DIAS.map((_, indice) => {
           const dia = indice + 1;
+          const sesionesDia = sesionesPorDia[indice];
           return (
             <div key={dia} className="relative border-l border-linea" style={{ height: horas.length * ALTO_HORA }}>
               {horas.map((h, i) => (
@@ -59,15 +100,21 @@ export default function CalendarioSemanal({ sesiones = [], onSeleccionarHueco, h
                   <div key={h} className="absolute inset-x-0 border-t border-dashed border-linea" style={{ top: i * ALTO_HORA }} />
                 )
               ))}
-              {sesiones.filter((s) => Number(s.dia) === dia).map((s) => {
+              {sesionesDia.map((s) => {
                 const top = ((minutos(s.inicio) - desde * 60) / 60) * ALTO_HORA;
                 const alto = Math.max(((minutos(s.fin) - minutos(s.inicio)) / 60) * ALTO_HORA - 2, 18);
                 const Contenedor = s.onClick ? 'button' : 'div';
+                const ancho = 100 / s.totalCarriles;
                 return (
                   <Contenedor key={s.clave} type={s.onClick ? 'button' : undefined} onClick={s.onClick}
                     title={`${s.titulo} · ${horaCorta(s.inicio)}–${horaCorta(s.fin)}${s.detalle ? ` · ${s.detalle}` : ''}`}
-                    className={`absolute inset-x-1 z-[1] overflow-hidden rounded-md border-l-[3px] px-1.5 py-1 text-left text-[11px] leading-tight shadow-sm ${s.color || colorNivel(1)} ${s.atenuada ? 'opacity-45' : ''} ${s.onClick ? 'cursor-pointer hover:brightness-95' : ''}`}
-                    style={{ top: top + 1, height: alto }}>
+                    className={`absolute z-[1] overflow-hidden rounded-md border-l-[3px] px-1.5 py-1 text-left text-[11px] leading-tight shadow-sm ${s.color || colorNivel(1)} ${s.atenuada ? 'opacity-45' : ''} ${s.onClick ? 'cursor-pointer hover:brightness-95' : ''}`}
+                    style={{
+                      top: top + 1,
+                      height: alto,
+                      left: `calc(${s.carril * ancho}% + 4px)`,
+                      width: `calc(${ancho}% - 8px)`,
+                    }}>
                     <div className="truncate font-semibold">{s.titulo}</div>
                     <div className="truncate opacity-80">{horaCorta(s.inicio)}–{horaCorta(s.fin)}</div>
                     {s.detalle && alto > 50 && <div className="truncate opacity-80">{s.detalle}</div>}

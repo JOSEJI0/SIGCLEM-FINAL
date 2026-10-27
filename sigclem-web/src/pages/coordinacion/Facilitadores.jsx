@@ -1,3 +1,5 @@
+import { useAuth } from '../../auth/AuthContext';
+import { esSoloConsulta } from '../../auth/roles';
 import { useCallback, useEffect, useState } from 'react';
 import { Eye, EyeOff, KeyRound, Plus, UserRoundCog } from 'lucide-react';
 import {
@@ -25,7 +27,9 @@ function CampoContrasena({ id, valor, onCambiar, requerido = false }) {
   );
 }
 
-export default function Facilitadores() {
+export default function Facilitadores({ soloLectura = false }) {
+  const { perfil } = useAuth();
+  const esSoloLectura = soloLectura || esSoloConsulta(perfil?.rol);
   const [facilitadores, setFacilitadores] = useState([]);
   const [formulario, setFormulario] = useState(inicial);
   const [seleccionado, setSeleccionado] = useState(null);
@@ -102,7 +106,8 @@ export default function Facilitadores() {
   }
 
   return (
-    <div className="grid grid-cols-1 gap-[18px] xl:grid-cols-[minmax(300px,0.8fr)_1.2fr]">
+    <div className={`grid grid-cols-1 gap-[18px] ${esSoloLectura ? "" : "xl:grid-cols-[minmax(300px,0.8fr)_1.2fr]"}`}>
+      {!esSoloLectura && (
       <Tarjeta titulo={seleccionado ? 'Editar facilitador' : 'Registrar facilitador'} icono={UserRoundCog}>
         <form className="grid gap-3" onSubmit={guardar}>
           <Campo etiqueta="Nombre" id="nombre">
@@ -141,6 +146,7 @@ export default function Facilitadores() {
           </div>
         )}
       </Tarjeta>
+      )}
 
       <Tarjeta titulo="Facilitadores registrados" extra={`${filtrados.length} de ${facilitadores.length}`}>
         {aviso && <Alerta tipo="ok" className="mb-3">{aviso}</Alerta>}
@@ -163,10 +169,14 @@ export default function Facilitadores() {
                     <td className="px-2 py-3">
                       <div className="flex gap-2">
                         <button className="text-marino underline" type="button" onClick={() => setVerGrupos(f)}>Grupos</button>
-                        <button className="text-marino underline" type="button" onClick={() => editar(f)}>Editar</button>
-                        <button className="text-marino underline" type="button"
-                          onClick={() => { setCambioClave({ facilitador: f, contrasena: '', error: '' }); setAviso(''); }}>Contraseña</button>
-                        <button className="text-marino underline" type="button" onClick={() => cambiarEstado(f)}>{f.activo ? 'Desactivar' : 'Activar'}</button>
+                        {!esSoloLectura && (
+                          <>
+                            <button className="text-marino underline" type="button" onClick={() => editar(f)}>Editar</button>
+                            <button className="text-marino underline" type="button"
+                              onClick={() => { setCambioClave({ facilitador: f, contrasena: '', error: '' }); setAviso(''); }}>Contraseña</button>
+                            <button className="text-marino underline" type="button" onClick={() => cambiarEstado(f)}>{f.activo ? 'Desactivar' : 'Activar'}</button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>

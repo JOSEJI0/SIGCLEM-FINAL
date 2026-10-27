@@ -68,8 +68,7 @@ public class AlumnoService {
      */
     @Transactional(readOnly = true)
     public Page<AlumnoResumenDTO> buscar(String busqueda, Integer idCarrera, String numeroControl, String nombre,
-            Integer nivel, Integer semestre, String estatus, Pageable pageable) {
-        // Por omisión solo se muestran los alumnos activos; "Baja" o "Todos" incluyen a los dados de baja.
+            Integer nivel, Integer semestre, String estatus, String formaLiberacion, Pageable pageable) {
         String estatusFiltro = estatus == null || estatus.isBlank() ? "Activo" : estatus.trim();
         Pageable pagina = pageable.getPageSize() > TAMANO_MAXIMO_PAGINA
                 ? PageRequest.of(pageable.getPageNumber(), TAMANO_MAXIMO_PAGINA)
@@ -83,22 +82,40 @@ public class AlumnoService {
 
         List<AlumnoResumenDTO> filtrados = candidatos.stream()
                 .map(a -> {
-                    Nivel actual = nivelActual(niveles, avancePorAlumno.getOrDefault(a.getNumeroControl(), List.of()));
+                    List<AvanceNivel> av = avancePorAlumno.getOrDefault(a.getNumeroControl(), List.of());
+                    Nivel actual = nivelActual(niveles, av);
+                    String forma = actual == null ? formaLiberacion(av) : null;
+                    String nivelTexto = actual == null
+                            ? (forma != null && !forma.isBlank() ? IDIOMA_ACREDITADO + " (" + forma + ")" : IDIOMA_ACREDITADO)
+                            : actual.getNombre();
                     return new AlumnoResumenDTO(a.getNumeroControl(), a.nombreCompleto(), a.getCarrera().getNombre(),
                             a.getSemestre(), a.getSexo(), a.getFechaActualizacionSemestre(), a.getCorreo(),
                             a.getFechaInscripcion(),
                             actual == null ? NIVEL_IDIOMA_ACREDITADO : actual.getNumero(),
-                            actual == null ? IDIOMA_ACREDITADO : actual.getNombre(),
-                            a.isHablaLenguaMaterna(), a.getEstatus());
+                            nivelTexto,
+                            a.isHablaLenguaMaterna(), a.getEstatus(), forma);
                 })
                 .filter(dto -> "Todos".equalsIgnoreCase(estatusFiltro) || dto.estatus().equalsIgnoreCase(estatusFiltro))
                 .filter(dto -> nivel == null || dto.numeroNivelActual().equals(nivel))
                 .filter(dto -> semestre == null || dto.semestre().equals(semestre))
+                .filter(dto -> {
+                    if (formaLiberacion == null || formaLiberacion.isBlank() || "Todas".equalsIgnoreCase(formaLiberacion.trim())) {
+                        return true;
+                    }
+                    String f = formaLiberacion.trim().toLowerCase();
+                    return dto.formaLiberacion() != null && dto.formaLiberacion().toLowerCase().contains(f);
+                })
                 .toList();
 
         int desde = (int) Math.min((long) pagina.getPageNumber() * pagina.getPageSize(), filtrados.size());
         int hasta = Math.min(desde + pagina.getPageSize(), filtrados.size());
         return new PageImpl<>(filtrados.subList(desde, hasta), pagina, filtrados.size());
+    }
+
+    @Transactional(readOnly = true)
+    public Page<AlumnoResumenDTO> buscar(String busqueda, Integer idCarrera, String numeroControl, String nombre,
+            Integer nivel, Integer semestre, String estatus, Pageable pageable) {
+        return buscar(busqueda, idCarrera, numeroControl, nombre, nivel, semestre, estatus, null, pageable);
     }
 
     /**
@@ -184,13 +201,16 @@ public class AlumnoService {
                 .map(AvanceNivel::getOrigen)
                 .filter(java.util.Objects::nonNull)
                 .collect(Collectors.toSet());
-        for (String forma : List.of("Examen global", "Lengua materna", "Otra")) {
+        for (String forma : List.of("Examen global", "Lengua materna")) {
             if (origenes.contains(forma)) {
                 return forma;
             }
         }
         if (origenes.stream().anyMatch(o -> o.startsWith("Examen"))) {
             return "Examen de colocación";
+        }
+        for (String o : origenes) {
+            if (!o.equals("Curso")) return o;
         }
         return "Curso";
     }
@@ -210,11 +230,12 @@ public class AlumnoService {
             throw new DatosInvalidosException("ALUM-013", "El alumno ya tiene la lengua extranjera acreditada.");
         }
         // El origen guarda la forma (cabe en 30 caracteres); el detalle queda en la bitácora de auditoría.
+        String formaLimpia = (forma == null || forma.isBlank()) ? "Otra" : forma.trim();
         avance.stream()
                 .filter(a -> !a.getEstatus().cubreNivel())
                 .forEach(a -> {
                     a.setEstatus(EstatusAvance.EXENTO);
-                    a.setOrigen(forma);
+                    a.setOrigen(formaLimpia);
                 });
         avanceRepository.saveAll(avance);
         return armarExpediente(alumno, avance);

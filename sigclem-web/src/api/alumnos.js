@@ -4,10 +4,10 @@ import { api } from './cliente';
 export const crearAlumno = (datos) => api.post('/alumnos/registro', datos).then((r) => r.data);
 /**
  * Filtros por partes (todos opcionales): idCarrera, numeroControl, nombre, semestre, nivel (1 a 10; 0 = idioma
- * acreditado) y estatus ("Activo", "Baja" o "Todos"; por omisión solo activos).
+ * acreditado), estatus ("Activo", "Baja" o "Todos") y formaLiberacion.
  */
 export const buscarAlumnos = ({
-  busqueda = '', idCarrera, numeroControl, nombre, nivel, semestre, estatus, pagina = 0, tamano = 20,
+  busqueda = '', idCarrera, numeroControl, nombre, nivel, semestre, estatus, formaLiberacion, pagina = 0, tamano = 20,
 } = {}) => {
   const params = { page: pagina, size: tamano };
   if (busqueda) params.busqueda = busqueda;
@@ -17,6 +17,7 @@ export const buscarAlumnos = ({
   if (nivel !== undefined && nivel !== null && nivel !== '') params.nivel = nivel;
   if (semestre) params.semestre = semestre;
   if (estatus) params.estatus = estatus;
+  if (formaLiberacion) params.formaLiberacion = formaLiberacion;
   return api.get('/alumnos', { params }).then((r) => r.data);
 };
 /** Baja reversible de un alumno (motivo obligatorio). */
@@ -33,13 +34,18 @@ export const cargarAlumnosExcel = (archivo) => {
   datos.append('archivo', archivo);
   return api.post('/alumnos/carga', datos, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data);
 };
-/** Descarga la plantilla de Excel (blob). */
 export const descargarPlantillaAlumnos = () =>
-  api.get('/alumnos/plantilla', { responseType: 'blob' }).then((r) => r.data);
-/** Expediente integral: avance, historial, pagos, exámenes, diagnósticos, constancias y lengua materna. */
-export const obtenerExpedienteIntegral = (numeroControl) =>
-  api.get(`/alumnos/${encodeURIComponent(numeroControl)}/integral`).then((r) => r.data);
+  api.get('/alumnos/plantilla-excel', { responseType: 'blob' }).then((r) => r.data);
+/**
+ * CU-03: consulta completa del expediente del alumno con su avance reticular en los diez niveles de inglés.
+ * Rol: Alumno (solo su propio expediente), Coordinador.
+ */
 export const obtenerExpediente = (numeroControl) =>
-  api.get(`/alumnos/${encodeURIComponent(numeroControl)}`).then((r) => r.data);
-/** El alumno confirma o actualiza el semestre que cursa. */
-export const actualizarMiSemestre = (semestre) => api.put('/alumnos/yo/semestre', { semestre }).then((r) => r.data);
+  api.get(`/alumnos/${encodeURIComponent(numeroControl)}/expediente`).then((r) => r.data);
+
+/**
+ * Expediente integral (cambio 15): agrupa alumno, avance reticular, historial académico, cargos de pago,
+ * exámenes y evaluaciones diagnósticas, constancias y registro de lengua materna en una sola consulta.
+ */
+export const obtenerExpedienteIntegral = (numeroControl) =>
+  api.get(`/alumnos/${encodeURIComponent(numeroControl)}/expediente-integral`).then((r) => r.data);

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { CalendarDays } from 'lucide-react';
+import { CalendarDays, Users } from 'lucide-react';
 import { obtenerPeriodos } from '../../api/catalogos';
-import { listarGrupos } from '../../api/grupos';
+import { alumnosDelGrupo, listarGrupos } from '../../api/grupos';
 import { mensajeError } from '../../api/cliente';
-import { Alerta, Campo, Cargando, Insignia, Tarjeta, claseEntrada } from '../../components/ui';
+import { Alerta, Boton, Campo, Cargando, Insignia, Tarjeta, claseEntrada } from '../../components/ui';
+import { Modal } from '../../components/Modal';
 
 const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
@@ -16,6 +17,7 @@ export default function GruposSupervision() {
   const [periodos, setPeriodos] = useState([]);
   const [periodoId, setPeriodoId] = useState('');
   const [grupos, setGrupos] = useState([]);
+  const [grupoSeleccionado, setGrupoSeleccionado] = useState(null);
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(true);
 
@@ -65,6 +67,7 @@ export default function GruposSupervision() {
                 <th className="px-2 py-2">Inscripción</th>
                 <th className="px-2 py-2">Horario</th>
                 <th className="px-2 py-2">Acta</th>
+                <th className="px-2 py-2">Alumnos</th>
               </tr>
             </thead>
             <tbody>
@@ -83,12 +86,72 @@ export default function GruposSupervision() {
                     ))}
                   </td>
                   <td className="px-2 py-3"><Insignia estatus={grupo.estatusActa} /></td>
+                  <td className="px-2 py-3">
+                    <Boton variante="secundario" onClick={() => setGrupoSeleccionado(grupo)}>
+                      <Users className="h-3.5 w-3.5" /> Ver alumnos
+                    </Boton>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
+      {grupoSeleccionado && (
+        <AlumnosGrupo grupo={grupoSeleccionado} onCerrar={() => setGrupoSeleccionado(null)} />
+      )}
     </Tarjeta>
+  );
+}
+
+function AlumnosGrupo({ grupo, onCerrar }) {
+  const [inscritos, setInscritos] = useState([]);
+  const [error, setError] = useState('');
+  const [cargando, setCargando] = useState(true);
+
+  useEffect(() => {
+    let activo = true;
+    alumnosDelGrupo(grupo.id)
+      .then((detalle) => {
+        if (activo) setInscritos(detalle.inscritos);
+      })
+      .catch((e) => {
+        if (activo) setError(mensajeError(e));
+      })
+      .finally(() => {
+        if (activo) setCargando(false);
+      });
+    return () => { activo = false; };
+  }, [grupo.id]);
+
+  return (
+    <Modal titulo={`${grupo.nivel} · Grupo ${grupo.clave}`} onCerrar={onCerrar} ancho="max-w-2xl">
+      <p className="mb-4 text-sm text-tenue">
+        {grupo.periodo} · {grupo.facilitador} · {inscritos.length} alumnos inscritos
+      </p>
+      {error && <Alerta tipo="error" className="mb-3">{error}</Alerta>}
+      {cargando ? <Cargando texto="Cargando alumnos del grupo…" /> : inscritos.length === 0 ? (
+        <p className="text-sm text-tenue">Este grupo aún no tiene alumnos inscritos.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-linea text-xs text-tenue">
+              <tr>
+                <th className="px-2 py-2">Alumno</th>
+                <th className="px-2 py-2">Número de control</th>
+              </tr>
+            </thead>
+            <tbody>
+              {inscritos.map((alumno) => (
+                <tr className="border-b border-linea last:border-0" key={alumno.numeroControl}>
+                  <td className="px-2 py-2.5 font-medium">{alumno.nombreCompleto}</td>
+                  <td className="px-2 py-2.5">{alumno.numeroControl}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
   );
 }

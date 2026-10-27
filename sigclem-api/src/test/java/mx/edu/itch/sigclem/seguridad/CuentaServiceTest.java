@@ -53,6 +53,17 @@ class CuentaServiceTest {
     }
 
     @Test
+    void elAlumnoPuedeCambiarSuContrasenaInicialUsandoLaActual() {
+        Usuario alumno = new Usuario("22520187", encoder.encode("22520187"), null);
+        when(usuarioRepository.findByNombreUsuario("22520187")).thenReturn(Optional.of(alumno));
+
+        service.cambiarPropia("22520187", "22520187", "Nueva2027x");
+
+        assertTrue(encoder.matches("Nueva2027x", alumno.getContrasenaHash()));
+        verify(usuarioRepository).save(alumno);
+    }
+
+    @Test
     void rechazaContrasenaActualIncorrectaODebil() {
         Usuario coordinador = new Usuario("coordinador", encoder.encode("Inicial2026"), null);
         when(usuarioRepository.findByNombreUsuario("coordinador")).thenReturn(Optional.of(coordinador));
@@ -73,6 +84,38 @@ class CuentaServiceTest {
         service.asignarAlumno(" 22520187 ", "Temporal2026");
 
         assertTrue(encoder.matches("Temporal2026", cuenta.getContrasenaHash()));
+    }
+
+    @Test
+    void permiteAsignarElNumeroDeControlComoContrasenaDelAlumno() {
+        Usuario cuenta = new Usuario("22520187", encoder.encode("Olvidada1"), null);
+        Alumno alumno = new Alumno();
+        alumno.setUsuario(cuenta);
+        when(alumnoRepository.findById("22520187")).thenReturn(Optional.of(alumno));
+
+        service.asignarAlumno("22520187", "22520187");
+
+        assertTrue(encoder.matches("22520187", cuenta.getContrasenaHash()));
+        verify(usuarioRepository).save(cuenta);
+    }
+
+    @Test
+    void permiteUnaContrasenaDeAlumnoSinRequisitosDeComposicion() {
+        Usuario cuenta = new Usuario("22520187", encoder.encode("Olvidada1"), null);
+        Alumno alumno = new Alumno();
+        alumno.setUsuario(cuenta);
+        when(alumnoRepository.findById("22520187")).thenReturn(Optional.of(alumno));
+
+        service.asignarAlumno("22520187", "1234");
+
+        assertTrue(encoder.matches("1234", cuenta.getContrasenaHash()));
+    }
+
+    @Test
+    void rechazaContrasenasDeAlumnoVaciasOMayoresAlLimiteUtf8DeBcrypt() {
+        assertThrows(DatosInvalidosException.class, () -> service.asignarAlumno("22520187", ""));
+        assertThrows(DatosInvalidosException.class, () -> service.asignarAlumno("22520187", "á".repeat(37)));
+        verify(alumnoRepository, never()).findById(any());
     }
 
     @Test

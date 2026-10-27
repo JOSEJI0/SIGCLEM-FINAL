@@ -1,5 +1,6 @@
 package mx.edu.itch.sigclem.seguridad.service;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -41,10 +42,11 @@ public class CuentaService {
 
     @Transactional
     public void asignarAlumno(String numeroControl, String nueva) {
+        validarContrasenaAlumno(nueva);
         String control = numeroControl.trim().toUpperCase(Locale.ROOT);
         var alumno = alumnoRepository.findById(control)
                 .orElseThrow(() -> new RecursoNoEncontradoException("CTA-005", "No existe el alumno " + control + "."));
-        asignar(alumno.getUsuario(), nueva);
+        guardar(alumno.getUsuario(), nueva);
     }
 
     @Transactional
@@ -56,16 +58,30 @@ public class CuentaService {
 
     private void asignar(Usuario usuario, String nueva) {
         validar(nueva);
+        guardar(usuario, nueva);
+    }
+
+    private void guardar(Usuario usuario, String nueva) {
         usuario.setContrasenaHash(passwordEncoder.encode(nueva));
         usuarioRepository.save(usuario);
     }
 
     static void validar(String contrasena) {
-        if (contrasena == null || contrasena.length() < 8 || contrasena.length() > 72) {
-            throw new DatosInvalidosException("CTA-004", "La contraseña debe tener entre 8 y 72 caracteres.");
+        if (contrasena == null || contrasena.length() < 8 || bytesUtf8(contrasena) > 72) {
+            throw new DatosInvalidosException("CTA-004", "La contraseña debe tener al menos 8 caracteres y no superar 72 bytes UTF-8.");
         }
         if (!contrasena.matches(".*[A-Za-zÁÉÍÓÚÑáéíóúñ].*") || !contrasena.matches(".*\\d.*")) {
             throw new DatosInvalidosException("CTA-004", "La contraseña debe incluir al menos una letra y un número.");
         }
+    }
+
+    private static void validarContrasenaAlumno(String contrasena) {
+        if (contrasena == null || contrasena.isBlank() || bytesUtf8(contrasena) > 72) {
+            throw new DatosInvalidosException("CTA-004", "La contraseña del alumno no puede estar vacía ni superar 72 bytes UTF-8.");
+        }
+    }
+
+    private static int bytesUtf8(String contrasena) {
+        return contrasena.getBytes(StandardCharsets.UTF_8).length;
     }
 }

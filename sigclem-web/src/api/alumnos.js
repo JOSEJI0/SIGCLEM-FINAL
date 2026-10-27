@@ -42,10 +42,12 @@ export const descargarPlantillaAlumnos = () =>
  */
 export const obtenerExpediente = (numeroControl) =>
   api.get(`/alumnos/${encodeURIComponent(numeroControl)}/expediente`).then((r) => r.data);
-
 /**
  * Expediente integral (cambio 15): agrupa alumno, avance reticular, historial académico, cargos de pago,
  * exámenes y evaluaciones diagnósticas, constancias y registro de lengua materna en una sola consulta.
  */
 export const obtenerExpedienteIntegral = (numeroControl) =>
   api.get(`/alumnos/${encodeURIComponent(numeroControl)}/expediente-integral`).then((r) => r.data);
+/** El alumno actualiza el semestre que cursa. */
+export const actualizarMiSemestre = (semestre) =>
+  api.put('/alumnos/yo/semestre', { semestre }).then((r) => r.data);

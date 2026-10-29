@@ -6,7 +6,10 @@ import {
   descargarDocumentoLenguaMaterna,
   listarLenguasMaternas,
   listarRegistrosLenguasMaternas,
+  subirDocumentosCoordinacion,
 } from '../../api/lenguasMaternas';
+import DocumentosLengua from '../../components/DocumentosLengua';
+import { Modal } from '../../components/Modal';
 import { mensajeError } from '../../api/cliente';
 import { Alerta, Boton, Campo, Cargando, Insignia, Tarjeta, claseEntrada } from '../../components/ui';
 import { useVisorDocumento } from '../../components/VisorDocumento';
@@ -22,6 +25,7 @@ export default function LenguasMaternas({ soloLectura = false }) {
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
+  const [subir, setSubir] = useState(null);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -67,6 +71,12 @@ export default function LenguasMaternas({ soloLectura = false }) {
       setError(mensajeError(e));
     }
   }
+
+  const ver = (registro, tipo, etiqueta) => verDocumento({
+  titulo: `${etiqueta} · ${registro.nombreAlumno}`,
+  nombre: `lengua-${registro.id}-${tipo}`,
+  cargar: () => descargarDocumentoLenguaMaterna(registro.id, tipo),
+  });
 
   function obtenerDocumento(registro) {
     verDocumento({
@@ -126,9 +136,12 @@ export default function LenguasMaternas({ soloLectura = false }) {
                   <td className="py-3 pr-3"><Insignia estatus={registro.estatus} /></td>
                   <td className="py-3">
                     <div className="flex flex-wrap gap-2">
-                      <Boton variante="secundario" type="button" onClick={() => obtenerDocumento(registro)}>Ver documento</Boton>
+                      <DocumentosLengua registro={registro} onVer={ver} />
                       {!soloLectura && registro.estatus === 'Pendiente' && (
                         <>
+                        <Boton variante="secundario" type="button" className="mt-2" onClick={() => setSubir({ registro, intercultural: null, constancia: null, error: '' })}>
+  Subir doc. intercultural y constancia
+</Boton>
                           <Boton variante="exito" type="button" onClick={() => revisar(registro, 'Validado')}
                             aria-label={`Validar registro de ${registro.nombreAlumno}`}><Check className="h-4 w-4" /> Validar</Boton>
                           <Boton variante="peligro" type="button" onClick={() => revisar(registro, 'Rechazado')}
@@ -143,6 +156,29 @@ export default function LenguasMaternas({ soloLectura = false }) {
           </div>
         )}
       </Tarjeta>
+      {subir && (
+  <Modal titulo={`Documentos de acreditación · ${subir.registro.nombreAlumno}`} onCerrar={() => setSubir(null)} ancho="max-w-md">
+    <form className="grid gap-3" onSubmit={async (e) => {
+      e.preventDefault();
+      try {
+        await subirDocumentosCoordinacion(subir.registro.id, subir);
+        setSubir(null); setAviso('Documentos cargados.'); await cargar();
+      } catch (err) { setSubir({ ...subir, error: mensajeError(err) }); }
+    }}>
+      {subir.error && <Alerta tipo="error">{subir.error}</Alerta>}
+      {[['intercultural', 'Documento de la Universidad Intercultural'], ['constancia', 'Constancia de acreditación de lengua materna']].map(([k, t]) => (
+        <Campo key={k} etiqueta={t} id={`sub-${k}`} ayuda="PDF, PNG o JPEG; máximo 5 MB.">
+          <input id={`sub-${k}`} type="file" className={claseEntrada} accept=".pdf,.png,.jpg,.jpeg"
+            onChange={(ev) => setSubir({ ...subir, [k]: ev.target.files?.[0] || null })} />
+        </Campo>
+      ))}
+      <div className="flex justify-end gap-2">
+        <Boton type="button" variante="secundario" onClick={() => setSubir(null)}>Cancelar</Boton>
+        <Boton type="submit" disabled={!subir.intercultural && !subir.constancia}>Guardar</Boton>
+      </div>
+    </form>
+  </Modal>
+)}
     </div>
   );
 }

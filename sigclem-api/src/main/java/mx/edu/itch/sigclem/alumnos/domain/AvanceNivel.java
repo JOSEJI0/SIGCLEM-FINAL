@@ -26,7 +26,7 @@ public class AvanceNivel {
     @Column(nullable = false, length = 12)
     private EstatusAvance estatus;
 
-    @Column(length = 30)
+    @Column(length = 60)
     private String origen;
 
     @Column(name = "fecha_registro", nullable = false)

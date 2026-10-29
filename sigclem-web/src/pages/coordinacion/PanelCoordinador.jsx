@@ -10,6 +10,9 @@ import { obtenerPeriodos } from '../../api/catalogos';
 import { listarGrupos } from '../../api/grupos';
 import { mensajeError } from '../../api/cliente';
 import { obtenerReporteAcademico } from '../../api/reportes';
+import { listarExamenes } from '../../api/examenes';
+import { listarDiagnosticos } from '../../api/diagnosticos';
+import { listarConstancias } from '../../api/constancias';
 import { BarrasHorizontales, Indicador } from '../../components/Graficas';
 
 const numero = (valor) => new Intl.NumberFormat('es-MX', { maximumFractionDigits: 1 }).format(valor);
@@ -45,6 +48,41 @@ export default function PanelCoordinador() {
   const [cargandoPeriodos, setCargandoPeriodos] = useState(true);
   const [cargandoDatos, setCargandoDatos] = useState(false);
   const [error, setError] = useState('');
+  const [tareas, setTareas] = useState([]);
+
+useEffect(() => {
+  Promise.all([
+    listarExamenes({ pendientes: true }),
+    listarComprobantesPendientes(),
+    listarDiagnosticos(),
+    listarConstancias('Solicitada'),
+  ]).then(([examenes, comprobantes, diagnosticos, constancias]) => setTareas([
+    ...examenes.map((x) => ({
+      clave: `ex-${x.id}`, tipo: 'Solicitud de examen', ruta: '/coordinacion/diagnosticos',
+      titulo: `${x.nombreAlumno} · Examen de ${x.tipo}`, detalle: `Control ${x.numeroControl} · sin resultado`,
+    })),
+    ...comprobantes.map((c) => ({
+      clave: `cp-${c.id}`, tipo: 'Pago por validar', ruta: '/coordinacion/comprobantes',
+      titulo: `${c.alumno} · ${c.concepto}`, detalle: `Control ${c.numeroControl}`,
+    })),
+    ...diagnosticos.filter((d) => d.estatus === 'Solicitada').map((d) => ({
+      clave: `dg-${d.id}`, tipo: 'Diagnóstico por programar', ruta: '/coordinacion/evaluaciones-diagnosticas',
+      titulo: d.nombreAlumno, detalle: `Control ${d.numeroControl}`,
+    })),
+    ...constancias.map((k) => ({
+      clave: `co-${k.id}`, tipo: 'Constancia solicitada', ruta: '/coordinacion/constancias',
+      titulo: k.nombreAlumno, detalle: `Control ${k.numeroControl}`,
+    })),
+  ])).catch(() => {});
+}, []);
+
+const avisos = [
+  ...mensajes.filter((m) => !m.leido && m.idRemitente).map((m) => ({
+    clave: `m-${m.id}`, tipo: `Mensaje · ${m.rolRemitente}`, ruta: '/coordinacion/mensajes', mensaje: m,
+    titulo: m.asunto, detalle: `${m.remitente} · ${fechaHoraCorta(m.fechaEnvio)}`,
+  })),
+  ...tareas,
+];
 
   useEffect(() => {
     let activo = true;
@@ -171,55 +209,33 @@ export default function PanelCoordinador() {
       )}
       {cargandoDatos && <Cargando texto="Consultando información del periodo…" />}
 
-      <Tarjeta titulo="Notificaciones recientes" icono={Bell} extra={`${mensajesSinLeer} sin leer`}>
-        {errorMensajes ? <Alerta tipo="error">{errorMensajes}</Alerta> : cargandoMensajes ? (
-          <Cargando texto="Cargando notificaciones…" />
-        ) : mensajes.length === 0 ? (
-          <p className="text-sm text-tenue">No tienes notificaciones recibidas.</p>
-        ) : (
-          <>
-            <div className="max-h-48 overflow-y-auto"><ul className="divide-y divide-linea">
-              {mensajes.slice(0, 3).map((mensaje) => {
-                const Icono = mensaje.idRemitente ? Mail : Bell;
-                return (
-                  <li key={mensaje.id}>
-                    <Link to="/coordinacion/mensajes"
-                      className="flex items-start gap-3 py-3 hover:text-marino"
-                      onClick={async (e) => {
-                        e.preventDefault();
-                        try {
-                          await marcarLeido(mensaje.id);
-                          setMensajes((prev) => prev.filter((m) => m.id !== mensaje.id));
-                        } catch (err) {
-                          console.error('Error marcando como leído', err);
-                        }
-                        navigate('/coordinacion/mensajes');
-                      }}>
-                      <Icono className="mt-0.5 h-4 w-4 shrink-0 text-tenue" aria-hidden />
-                      <span className="min-w-0 flex-1">
-                        <span className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                          <span className={`text-sm ${mensaje.leido ? 'font-medium' : 'font-bold'}`}>
-                            {mensaje.asunto}
-                          </span>
-                          <span className="text-xs text-tenue">{fechaHoraCorta(mensaje.fechaEnvio)}</span>
-                        </span>
-                        <span className="block text-xs text-tenue">
-                          {mensaje.remitente} · {mensaje.rolRemitente}
-                          {!mensaje.leido && <span className="font-semibold text-marino"> · Sin leer</span>}
-                        </span>
-                        <span className="mt-1 block whitespace-pre-wrap text-sm text-tinta">{mensaje.mensaje}</span>
-                      </span>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul></div>
-            <Link to="/coordinacion/mensajes" className="mt-2 inline-block text-sm font-semibold text-marino hover:underline">
-              Ver bandeja de mensajes
-            </Link>
-          </>
-        )}
-      </Tarjeta>
+<Tarjeta titulo="Notificaciones" icono={Bell} extra={`${avisos.length} pendientes`}>
+  {errorMensajes ? <Alerta tipo="error">{errorMensajes}</Alerta> : cargandoMensajes ? (
+    <Cargando texto="Cargando notificaciones…" />
+  ) : avisos.length === 0 ? (
+    <p className="text-sm text-tenue">No tienes notificaciones pendientes.</p>
+  ) : (
+    <ul className="max-h-[216px] divide-y divide-linea overflow-y-auto rounded-lg border border-linea">
+      {avisos.map((a) => (
+        <li key={a.clave} className="h-[72px]">
+          <Link to={a.ruta} className="flex h-full flex-col justify-center px-3 hover:bg-fondo"
+            onClick={async (e) => {
+              if (!a.mensaje) return;            // los avisos del sistema se quitan al cumplir la tarea
+              e.preventDefault();
+              try { await marcarLeido(a.mensaje.id); } catch { /* se reintenta al abrir la bandeja */ }
+              setMensajes((prev) => prev.map((m) => (m.id === a.mensaje.id ? { ...m, leido: true } : m)));
+              window.dispatchEvent(new Event('sigclem:mensajes-leidos'));
+              navigate(a.ruta);
+            }}>
+            <span className="text-[11px] font-semibold uppercase text-tenue">{a.tipo}</span>
+            <span className="truncate text-sm font-semibold">{a.titulo}</span>
+            <span className="truncate text-xs text-tenue">{a.detalle}</span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  )}
+</Tarjeta>
 
       {reporte && !cargandoDatos && (
         <>

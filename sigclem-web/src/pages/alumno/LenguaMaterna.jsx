@@ -9,6 +9,7 @@ import {
 import { mensajeError } from '../../api/cliente';
 import { Alerta, Boton, Campo, Cargando, Insignia, Tarjeta, claseEntrada } from '../../components/ui';
 import { useVisorDocumento } from '../../components/VisorDocumento';
+import DocumentosLengua from '../../components/DocumentosLengua';
 
 
 export default function LenguaMaterna() {
@@ -22,6 +23,9 @@ export default function LenguaMaterna() {
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
+  const [archivos, setArchivos] = useState({ curp: null, domicilio: null, ine: null });
+  const listo = idLengua && archivos.curp && archivos.domicilio && archivos.ine;
+
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -54,10 +58,14 @@ export default function LenguaMaterna() {
     setError('');
     setAviso('');
     try {
-      await registrarLenguaMaterna(
-        { idLengua: Number(idLengua), nivelDominio: nivelDominio.trim() || null },
-        documento,
-      );
+    await registrarLenguaMaterna({ idLengua: Number(idLengua), nivelDominio: nivelDominio.trim() || null }, archivos);
+    setArchivos({ curp: null, domicilio: null, ine: null }
+    );
+    const ver = (registro, tipo, etiqueta) => verDocumento({
+    titulo: `${etiqueta} · ${registro.lengua}`,
+    nombre: `lengua-${registro.id}-${tipo}`,
+    cargar: () => descargarDocumentoLenguaMaterna(registro.id, tipo),
+    });
       setAviso('Registro enviado. Coordinación revisará el documento.');
       setIdLengua('');
       setNivelDominio('');
@@ -106,11 +114,13 @@ export default function LenguaMaterna() {
               <input className={claseEntrada} id="nivelDominio" maxLength={20} value={nivelDominio}
                 onChange={(evento) => setNivelDominio(evento.target.value)} />
             </Campo>
-            <Campo etiqueta="Documento de respaldo (PDF, PNG o JPEG; máximo 5 MB)" id="documentoLengua">
-              <input className={claseEntrada} id="documentoLengua" type="file" required
+            {[['curp', 'CURP'], ['domicilio', 'Comprobante de domicilio'], ['ine', 'INE']].map(([clave, etiqueta]) => (
+              <Campo key={clave} etiqueta={`${etiqueta} (PDF, PNG o JPEG; máx. 5 MB)`} id={`doc-${clave}`}>
+                <input className={claseEntrada} id={`doc-${clave}`} type="file" required
                 accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
-                onChange={(evento) => setDocumento(evento.target.files?.[0] || null)} />
+                onChange={(e) => setArchivos((a) => ({ ...a, [clave]: e.target.files?.[0] || null }))} />
             </Campo>
+            ))}
             <div className="flex items-end">
               <Boton type="submit" disabled={guardando || !idLengua}>
                 {guardando ? 'Enviando…' : 'Enviar registro'}

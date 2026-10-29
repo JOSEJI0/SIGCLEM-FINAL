@@ -2,19 +2,20 @@ import { useAuth } from '../../auth/AuthContext';
 import { esSoloConsulta } from '../../auth/roles';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  CalendarDays, ChevronDown, LayoutGrid, Lock, NotebookPen, Pencil, Plus, Trash2, UserMinus, UserPlus, Users, X,
+  CalendarDays, ChevronDown, LayoutGrid, Lock, NotebookPen, Pencil, Plus, Trash2, UserMinus, UserPlus, Users, X, Eye,
 } from 'lucide-react';
 import { listarFacilitadores } from '../../api/facilitadores';
 import { crearAula, crearPeriodo, obtenerAulas, obtenerModalidades, obtenerNiveles, obtenerPeriodos } from '../../api/catalogos';
 import {
   abrirGrupo, alumnosDelGrupo, asignarAlumno, asignarNivelPendiente, cerrarActaCoordinacion, editarGrupo,
-  eliminarGrupo, listarGrupos, quitarAlumno,
+  eliminarGrupo, listarGrupos, quitarAlumno, descargarActaPdf,
 } from '../../api/grupos';
 import { buscarAlumnos } from '../../api/alumnos';
 import { mensajeError } from '../../api/cliente';
 import { Alerta, Boton, Campo, Cargando, Insignia, Tarjeta, claseEntrada } from '../../components/ui';
 import { ConfirmacionDoble, Modal } from '../../components/Modal';
 import CalendarioSemanal, { DIAS, colorNivel, horaCorta, minutos } from '../../components/CalendarioSemanal';
+import { useVisorDocumento } from '../../components/VisorDocumento';
 
 const pesos = (v) => (v == null ? '' : Number(v).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' }));
 const DURACIONES = [[60, '1 h'], [90, '1 h 30'], [120, '2 h'], [180, '3 h'], [240, '4 h']];
@@ -283,6 +284,12 @@ function EditorGrupo({ editor, setEditor, catalogos, onGuardado }) {
       <form className="grid gap-5 lg:grid-cols-[300px_1fr]" onSubmit={guardar}>
         <div className="grid content-start gap-3">
           {conAlumnos && <Alerta tipo="info">El grupo tiene alumnos: no se pueden cambiar el nivel ni el periodo.</Alerta>}
+          <div className="flex gap-2">
+  <Boton variante="secundario" onClick={verActa}>
+    <Eye className="h-3.5 w-3.5" /> {cerrada ? 'Ver acta (PDF)' : 'Ver acta preliminar (PDF)'}
+  </Boton>
+  {!cerrada && !soloLectura && <Boton variante="secundario" onClick={() => onEditar(g)}><Pencil className="h-3.5 w-3.5" /> Editar grupo</Boton>}
+</div>
           <div className="grid grid-cols-2 gap-3">
             <Campo etiqueta="Clave (A–Z)" id="clave">
               <input id="clave" className={claseEntrada} maxLength="2" pattern="[A-Za-z]{1,2}" required value={editor.clave} onChange={cambiar('clave')} />
@@ -386,6 +393,14 @@ function PanelAlumnos({ grupo, onCerrar, onEditar, soloLectura = false }) {
       setOcupado('');
     }
   };
+
+  const verDocumento = useVisorDocumento();
+  const verActa = () => verDocumento({
+  titulo: `Acta de calificaciones · ${g.nivel} ${g.clave} · ${g.periodo}`,
+  nombre: `acta-${g.nivel.replace(/\s+/g, '-')}-${g.clave}`,
+  cargar: () => descargarActaPdf(g.id),
+  });
+
   const asignar = (nc) => ejecutar(nc, () => asignarAlumno(grupo.id, nc), `Alumno ${nc} asignado; se generó su papeleta de pago.`);
 
   const g = detalle?.grupo ?? grupo;

@@ -86,13 +86,12 @@ public class LenguaMaternaService {
             }
         }
 
-        boolean tieneAlguno = (curp != null && !curp.isEmpty())
-                || (domicilio != null && !domicilio.isEmpty())
-                || (ine != null && !ine.isEmpty())
-                || (documentoGeneral != null && !documentoGeneral.isEmpty());
-        if (!tieneAlguno) {
+        boolean hayCurp = hay(curp) || (existente != null && existente.getDocumentoCurp() != null);
+        boolean hayDomicilio = hay(domicilio) || (existente != null && existente.getDocumentoDomicilio() != null);
+        boolean hayIne = hay(ine) || (existente != null && existente.getDocumentoIne() != null);
+        if (!(hayCurp && hayDomicilio && hayIne)) {
             throw new DatosInvalidosException("LENG-001",
-                    "Debes adjuntar al menos tus documentos comprobatorios (CURP, Comprobante de domicilio o INE).");
+            "Debes adjuntar tu CURP, tu comprobante de domicilio y tu INE.");
         }
 
         RegistroLenguaMaterna registro = existente == null ? new RegistroLenguaMaterna() : existente;
@@ -102,7 +101,10 @@ public class LenguaMaternaService {
         registro.setEstatus("Pendiente");
         registro.setFechaRegistro(LocalDate.now());
         registro.setUsuarioValida(null);
-
+        registro.setDocumentoCurp(guardarReemplazando(curp, registro.getDocumentoCurp()));
+        registro.setDocumentoDomicilio(guardarReemplazando(domicilio, registro.getDocumentoDomicilio()));
+        registro.setDocumentoIne(guardarReemplazando(ine, registro.getDocumentoIne()));
+        
         if (curp != null && !curp.isEmpty()) {
             registro.setDocumentoCurp(archivoService.guardar(curp));
         }
@@ -115,15 +117,18 @@ public class LenguaMaternaService {
         if (documentoGeneral != null && !documentoGeneral.isEmpty()) {
             registro.setDocumento(archivoService.guardar(documentoGeneral));
         }
-
+        
         RegistroLenguaDTO resultado = RegistroLenguaDTO.desde(registroRepository.save(registro));
         return new ResultadoRegistro(resultado, existente != null);
     }
 
-    @Transactional
-    public ResultadoRegistro registrar(
-            RegistroLenguaRequest solicitud, MultipartFile documento, String nombreUsuario) {
-        return registrar(solicitud, documento, null, null, null, nombreUsuario);
+    private static boolean hay(MultipartFile f) { return f != null && !f.isEmpty(); }
+    /** Guarda el archivo nuevo y borra el anterior; si no hay archivo nuevo conserva el actual. */
+    private String guardarReemplazando(MultipartFile nuevo, String actual) {
+    if (!hay(nuevo)) return actual;
+    String nombre = archivoService.guardar(nuevo);
+    if (actual != null) archivoService.eliminar(actual);
+    return nombre;
     }
 
     @Transactional
@@ -144,6 +149,11 @@ public class LenguaMaternaService {
         if (constancia != null && !constancia.isEmpty()) {
             registro.setConstanciaAcreditacion(archivoService.guardar(constancia));
         }
+        if (!hay(intercultural) && !hay(constancia)) {
+    throw new DatosInvalidosException("LENG-015", "Adjunta el documento de la universidad intercultural o la constancia de acreditación.");
+        } 
+            registro.setDocumentoIntercultural(guardarReemplazando(intercultural, registro.getDocumentoIntercultural()));
+            registro.setConstanciaAcreditacion(guardarReemplazando(constancia, registro.getConstanciaAcreditacion()));
 
         return RegistroLenguaDTO.desde(registroRepository.save(registro));
     }
@@ -201,15 +211,15 @@ public class LenguaMaternaService {
             else if (registro.getDocumentoIntercultural() != null) nombreArchivo = registro.getDocumentoIntercultural();
             else if (registro.getConstanciaAcreditacion() != null) nombreArchivo = registro.getConstanciaAcreditacion();
         }
-        if (nombreArchivo == null) {
-            throw new RecursoNoEncontradoException("LENG-002", "No se encontró el documento solicitado.");
+        if (nombreArchivo == null && tipo != null) {
+            throw new RecursoNoEncontradoException("LENG-002", "Ese documento aún no se ha cargado.");
         }
         return new DocumentoLengua(archivoService.cargar(nombreArchivo),
                 archivoService.tipoContenido(nombreArchivo));
     }
 
     @Transactional(readOnly = true)
-    public DocumentoLengua obtenerDocumento(Integer id, String nombreUsuario, boolean coordinacion) {
+    public DocumentoLengua obtenerDocumento(Integer id, String nombreUsuario, boolean coordinacion) {   
         return obtenerDocumento(id, null, nombreUsuario, coordinacion);
     }
 

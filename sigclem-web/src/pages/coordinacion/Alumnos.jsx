@@ -12,9 +12,8 @@ import { esCoordinacion } from '../../auth/roles';
 import { Alerta, Boton, Campo, Cargando, Insignia, Tarjeta, claseEntrada } from '../../components/ui';
 import { Modal } from '../../components/Modal';
 
-const FILTROS_VACIOS = { idCarrera: '', numeroControl: '', nombre: '', nivel: '', semestre: '', estatus: '' };
+const FILTROS_VACIOS = { idCarrera: '', numeroControl: '', nombre: '', nivel: '', semestre: '', estatus: '', formaLiberacion: '' };
 const SEMESTRES = Array.from({ length: 12 }, (_, i) => i + 1);
-
 const SEXO = { H: 'Hombre', M: 'Mujer' };
 
 function fechaCorta(iso) {
@@ -128,6 +127,15 @@ export default function Alumnos() {
               <option value="Todos">Todos</option>
             </select>
           </Campo>
+          <Campo etiqueta="Forma de liberación" id="filtroForma">
+  <input id="filtroForma" list="formas-liberacion" className={claseEntrada} maxLength="60"
+    placeholder="Ej. Examen global" value={busqueda.formaLiberacion}
+    onChange={cambiarFiltro('formaLiberacion')} />
+  <datalist id="formas-liberacion">
+    {['Curso', 'Examen de colocación', 'Examen de cuatro habilidades', 'Examen global', 'Lengua materna']
+      .map((f) => <option key={f} value={f} />)}
+  </datalist>
+</Campo>
           <div className="flex gap-2">
             <Boton type="submit"><Search className="h-4 w-4" /> Buscar</Boton>
             {hayFiltros && (
@@ -473,18 +481,16 @@ function ModalLiberar({ alumno, onCerrar, onLiberado }) {
   const [detalle, setDetalle] = useState('');
   const [error, setError] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const [otra, setOtra] = useState('');
+  const formaFinal = forma === 'Otra' ? otra.trim() : forma;
 
   const confirmar = async () => {
-    setEnviando(true);
-    setError('');
-    try {
-      await liberarIdioma(alumno.numeroControl, forma, detalle.trim() || null);
-      onLiberado(forma);
-    } catch (e) {
-      setError(mensajeError(e));
-      setEnviando(false);
-    }
-  };
+  setEnviando(true); setError('');
+  try {
+    await liberarIdioma(alumno.numeroControl, formaFinal, detalle.trim() || null);
+    onLiberado(formaFinal);
+  } catch (e) { setError(mensajeError(e)); setEnviando(false); }
+};
 
   return (
     <Modal titulo="Liberar la lengua extranjera" onCerrar={onCerrar} ancho="max-w-md">
@@ -500,6 +506,16 @@ function ModalLiberar({ alumno, onCerrar, onLiberado }) {
           <option value="Otra">Otra</option>
         </select>
       </Campo>
+      <option value="Otra">Otra (escribir cuál)</option>
+...
+{forma === 'Otra' && (
+  <Campo etiqueta="¿De qué forma se liberó?" id="otraForma" className="mt-3">
+    <input id="otraForma" className={claseEntrada} maxLength="60" value={otra}
+      onChange={(e) => setOtra(e.target.value)} placeholder="Ej. Constancia TOEFL, equivalencia…" />
+  </Campo>
+)}
+...
+<Boton type="button" disabled={enviando || !formaFinal} onClick={confirmar}></Boton>
       {forma === 'Examen global' && (
         <Alerta tipo="info" className="mt-2">Confirma que el alumno pagó el examen global y lo aprobó.</Alerta>
       )}

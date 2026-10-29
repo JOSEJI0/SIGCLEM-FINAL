@@ -196,24 +196,22 @@ public class AlumnoService {
 
     /** Deduce con qué forma el alumno liberó la lengua extranjera, a partir del origen de los niveles cubiertos. */
     private static String formaLiberacion(List<AvanceNivel> avance) {
-        java.util.Set<String> origenes = avance.stream()
-                .filter(a -> a.getEstatus().cubreNivel())
-                .map(AvanceNivel::getOrigen)
-                .filter(java.util.Objects::nonNull)
-                .collect(Collectors.toSet());
-        for (String forma : List.of("Examen global", "Lengua materna")) {
-            if (origenes.contains(forma)) {
-                return forma;
-            }
-        }
-        if (origenes.stream().anyMatch(o -> o.startsWith("Examen"))) {
-            return "Examen de colocación";
-        }
-        for (String o : origenes) {
-            if (!o.equals("Curso")) return o;
-        }
-        return "Curso";
+    java.util.Set<String> origenes = avance.stream()
+            .filter(a -> a.getEstatus().cubreNivel())
+            .map(AvanceNivel::getOrigen)
+            .filter(java.util.Objects::nonNull)
+            .collect(Collectors.toSet());
+    for (String forma : List.of("Examen global", "Lengua materna")) {
+        if (origenes.contains(forma)) return forma;
     }
+    for (String o : origenes) {                      // forma escrita por coordinación
+        if (!o.equals("Curso") && !o.startsWith("Examen de ")) return o;
+    }
+    for (String o : origenes) {                      // colocación o cuatro habilidades
+        if (o.startsWith("Examen de ")) return o;
+    }
+    return "Curso";
+}
 
     /**
      * Libera la lengua extranjera por una forma distinta a completar los diez niveles (examen global, lengua materna

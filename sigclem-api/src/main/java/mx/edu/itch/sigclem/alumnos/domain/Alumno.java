@@ -1,13 +1,17 @@
 package mx.edu.itch.sigclem.alumnos.domain;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import lombok.Getter;
@@ -75,6 +79,12 @@ public class Alumno {
 
     @Column(name = "fecha_baja")
     private LocalDate fechaBaja;
+
+    @Column(name = "liberado")
+    private Boolean liberado = false;
+
+    @OneToMany(mappedBy = "alumno", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<HistorialAcademico> historial = new ArrayList<>();
 
     public boolean estaDeBaja() {
         return "Baja".equals(estatus);

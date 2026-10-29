@@ -128,14 +128,14 @@ export default function Alumnos() {
             </select>
           </Campo>
           <Campo etiqueta="Forma de liberación" id="filtroForma">
-  <input id="filtroForma" list="formas-liberacion" className={claseEntrada} maxLength="60"
-    placeholder="Ej. Examen global" value={busqueda.formaLiberacion}
-    onChange={cambiarFiltro('formaLiberacion')} />
-  <datalist id="formas-liberacion">
-    {['Curso', 'Examen de colocación', 'Examen de cuatro habilidades', 'Examen global', 'Lengua materna']
-      .map((f) => <option key={f} value={f} />)}
-  </datalist>
-</Campo>
+            <input id="filtroForma" list="formas-liberacion" className={claseEntrada} maxLength="60"
+              placeholder="Ej. Examen global" value={busqueda.formaLiberacion}
+              onChange={cambiarFiltro('formaLiberacion')} />
+            <datalist id="formas-liberacion">
+              {['Curso', 'Examen de colocación', 'Examen de cuatro habilidades', 'Examen global', 'Lengua materna']
+                .map((f) => <option key={f} value={f} />)}
+            </datalist>
+          </Campo>
           <div className="flex gap-2">
             <Boton type="submit"><Search className="h-4 w-4" /> Buscar</Boton>
             {hayFiltros && (
@@ -265,7 +265,10 @@ export default function Alumnos() {
           onCreado={(nc) => recargar(`Alumno ${nc} creado. Su contraseña inicial es su número de control.`)} />
       )}
       {modal?.tipo === 'importar' && (
-        <ModalImportar onCerrar={() => setModal(null)} onImportado={(r) => recargar(`${r.creados} de ${r.filas} alumnos creados.`)} />
+        <ModalImportar 
+          onCerrar={() => setModal(null)} 
+          onImportado={(r) => recargar(`✅ Importación exitosa: ${r.creados} alumnos procesados y ${r.nivelesImportados} niveles históricos guardados.`)} 
+        />
       )}
       {modal?.tipo === 'baja' && (
         <ModalBaja alumno={modal.alumno} onCerrar={() => setModal(null)}
@@ -392,8 +395,7 @@ function ModalImportar({ onCerrar, onImportado }) {
   return (
     <Modal titulo="Importar alumnos desde Excel" onCerrar={onCerrar} ancho="max-w-xl">
       <p className="text-[13px]">
-        Sube un archivo <b>.xlsx</b> con una fila por alumno. Descarga la plantilla para usar el formato correcto. La
-        contraseña inicial de cada cuenta será su número de control.
+        Sube un archivo <b>.xlsx</b> con el concentrado histórico. Asegúrate de que el archivo contenga la hoja "General".
       </p>
       <Boton variante="secundario" type="button" className="mt-3" onClick={plantilla}>
         <Download className="h-4 w-4" /> Descargar plantilla
@@ -406,8 +408,11 @@ function ModalImportar({ onCerrar, onImportado }) {
       {resultado && (
         <div className="mt-3">
           <Alerta tipo={resultado.errores.length ? 'aviso' : 'ok'}>
-            Se crearon {resultado.creados} de {resultado.filas} alumnos.
-            {resultado.errores.length > 0 && ` ${resultado.errores.length} fila(s) con error:`}
+            <b>Resumen de importación:</b><br/>
+            - Filas procesadas: {resultado.filas}<br/>
+            - Alumnos creados/actualizados: {resultado.creados}<br/>
+            - Niveles históricos guardados: {resultado.nivelesImportados}
+            {resultado.errores.length > 0 && <><br/><b>{resultado.errores.length} fila(s) con error:</b></>}
           </Alerta>
           {resultado.errores.length > 0 && (
             <ul className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-linea text-xs">
@@ -426,7 +431,7 @@ function ModalImportar({ onCerrar, onImportado }) {
         ) : (
           <>
             <Boton variante="secundario" type="button" onClick={onCerrar}>Cancelar</Boton>
-            <Boton type="button" disabled={!archivo || subiendo} onClick={subir}>{subiendo ? 'Subiendo…' : 'Subir y crear'}</Boton>
+            <Boton type="button" disabled={!archivo || subiendo} onClick={subir}>{subiendo ? 'Procesando...' : 'Subir e Importar'}</Boton>
           </>
         )}
       </div>
@@ -485,12 +490,16 @@ function ModalLiberar({ alumno, onCerrar, onLiberado }) {
   const formaFinal = forma === 'Otra' ? otra.trim() : forma;
 
   const confirmar = async () => {
-  setEnviando(true); setError('');
-  try {
-    await liberarIdioma(alumno.numeroControl, formaFinal, detalle.trim() || null);
-    onLiberado(formaFinal);
-  } catch (e) { setError(mensajeError(e)); setEnviando(false); }
-};
+    setEnviando(true); 
+    setError('');
+    try {
+      await liberarIdioma(alumno.numeroControl, formaFinal, detalle.trim() || null);
+      onLiberado(formaFinal);
+    } catch (e) { 
+      setError(mensajeError(e)); 
+      setEnviando(false); 
+    }
+  };
 
   return (
     <Modal titulo="Liberar la lengua extranjera" onCerrar={onCerrar} ancho="max-w-md">
@@ -498,36 +507,38 @@ function ModalLiberar({ alumno, onCerrar, onLiberado }) {
         <b>{alumno.nombreCompleto}</b> ({alumno.numeroControl}) quedará con el <b>idioma acreditado</b> por la forma que
         elijas. Todos sus niveles pendientes se marcarán como exentos con esa forma.
       </p>
+      
       {error && <Alerta tipo="error" className="mt-3">{error}</Alerta>}
+      
       <Campo etiqueta="Forma de liberación" id="forma" className="mt-3">
         <select id="forma" className={claseEntrada} value={forma} onChange={(e) => setForma(e.target.value)}>
           <option value="Examen global">Examen global (aprobado)</option>
           <option value="Lengua materna">Lengua materna (documento validado)</option>
-          <option value="Otra">Otra</option>
+          <option value="Otra">Otra (escribir cuál)</option>
         </select>
       </Campo>
-      <option value="Otra">Otra (escribir cuál)</option>
-...
-{forma === 'Otra' && (
-  <Campo etiqueta="¿De qué forma se liberó?" id="otraForma" className="mt-3">
-    <input id="otraForma" className={claseEntrada} maxLength="60" value={otra}
-      onChange={(e) => setOtra(e.target.value)} placeholder="Ej. Constancia TOEFL, equivalencia…" />
-  </Campo>
-)}
-...
-<Boton type="button" disabled={enviando || !formaFinal} onClick={confirmar}></Boton>
+
+      {forma === 'Otra' && (
+        <Campo etiqueta="¿De qué forma se liberó?" id="otraForma" className="mt-3">
+          <input id="otraForma" className={claseEntrada} maxLength="60" value={otra}
+            onChange={(e) => setOtra(e.target.value)} placeholder="Ej. Constancia TOEFL, equivalencia…" />
+        </Campo>
+      )}
+
       {forma === 'Examen global' && (
         <Alerta tipo="info" className="mt-2">Confirma que el alumno pagó el examen global y lo aprobó.</Alerta>
       )}
       {forma === 'Lengua materna' && (
         <Alerta tipo="info" className="mt-2">Confirma que validaste el documento oficial de lengua materna.</Alerta>
       )}
+
       <Campo etiqueta="Detalle (opcional)" id="detalle" className="mt-3" ayuda="Folio, fecha o nota; queda en la auditoría.">
         <input id="detalle" className={claseEntrada} maxLength="200" value={detalle} onChange={(e) => setDetalle(e.target.value)} />
       </Campo>
+
       <div className="mt-5 flex justify-end gap-2">
         <Boton variante="secundario" type="button" onClick={onCerrar}>Cancelar</Boton>
-        <Boton type="button" disabled={enviando} onClick={confirmar}>{enviando ? 'Liberando…' : 'Liberar idioma'}</Boton>
+        <Boton type="button" disabled={enviando || !formaFinal} onClick={confirmar}>{enviando ? 'Liberando…' : 'Liberar idioma'}</Boton>
       </div>
     </Modal>
   );

@@ -39,6 +39,12 @@ public class Grupo {
     @Column(nullable = false, length = 2)
     private String clave;
 
+    @Column(nullable = false)
+    private boolean intensivo;
+
+    @Column(name = "referencia_historica", length = 255)
+    private String referenciaHistorica;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "id_nivel", nullable = false)
     private Nivel nivel;

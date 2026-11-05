@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
 import { BarChart3, Bell, CalendarDays, ClipboardCheck, FileCheck2, Mail, Search } from 'lucide-react';
 import { useAuth } from '../../auth/AuthContext';
+import { esSoloConsulta } from '../../auth/roles';
 import { Alerta, Campo, Cargando, Tarjeta, claseEntrada } from '../../components/ui';
 import { listarComprobantesPendientes } from '../../api/pagos';
 import { listarRecibidos, marcarLeido } from '../../api/mensajes';
@@ -37,8 +38,21 @@ function fechaHoraCorta(fecha) {
   });
 }
 
-export default function PanelCoordinador() {
+export default function PanelCoordinador({ soloLectura = false }) {
   const { perfil } = useAuth();
+  const esSoloLectura = soloLectura || esSoloConsulta(perfil?.rol);
+  const base = esSoloLectura ? '/supervision' : '/coordinacion';
+  const rutasTareas = esSoloLectura ? {
+    examen: '/supervision/examenes',
+    pago: '/supervision/pagos',
+    diagnostico: '/supervision/diagnosticos',
+    constancia: '/supervision/constancias',
+  } : {
+    examen: '/coordinacion/diagnosticos',
+    pago: '/coordinacion/comprobantes',
+    diagnostico: '/coordinacion/evaluaciones-diagnosticas',
+    constancia: '/coordinacion/constancias',
+  };
   const [periodos, setPeriodos] = useState([]);
   const [periodoId, setPeriodoId] = useState('');
   const [datos, setDatos] = useState(null);
@@ -58,19 +72,19 @@ useEffect(() => {
     listarConstancias('Solicitada'),
   ]).then(([examenes, comprobantes, diagnosticos, constancias]) => setTareas([
     ...examenes.map((x) => ({
-      clave: `ex-${x.id}`, tipo: 'Solicitud de examen', ruta: '/coordinacion/diagnosticos',
+      clave: `ex-${x.id}`, tipo: 'Solicitud de examen', ruta: rutasTareas.examen,
       titulo: `${x.nombreAlumno} · Examen de ${x.tipo}`, detalle: `Control ${x.numeroControl} · sin resultado`,
     })),
     ...comprobantes.map((c) => ({
-      clave: `cp-${c.id}`, tipo: 'Pago por validar', ruta: '/coordinacion/comprobantes',
+      clave: `cp-${c.id}`, tipo: 'Pago por validar', ruta: rutasTareas.pago,
       titulo: `${c.alumno} · ${c.concepto}`, detalle: `Control ${c.numeroControl}`,
     })),
     ...diagnosticos.filter((d) => d.estatus === 'Solicitada').map((d) => ({
-      clave: `dg-${d.id}`, tipo: 'Diagnóstico por programar', ruta: '/coordinacion/evaluaciones-diagnosticas',
+      clave: `dg-${d.id}`, tipo: 'Diagnóstico por programar', ruta: rutasTareas.diagnostico,
       titulo: d.nombreAlumno, detalle: `Control ${d.numeroControl}`,
     })),
     ...constancias.map((k) => ({
-      clave: `co-${k.id}`, tipo: 'Constancia solicitada', ruta: '/coordinacion/constancias',
+      clave: `co-${k.id}`, tipo: 'Constancia solicitada', ruta: rutasTareas.constancia,
       titulo: k.nombreAlumno, detalle: `Control ${k.numeroControl}`,
     })),
   ])).catch(() => {});
@@ -78,7 +92,7 @@ useEffect(() => {
 
 const avisos = [
   ...mensajes.filter((m) => !m.leido && m.idRemitente).map((m) => ({
-    clave: `m-${m.id}`, tipo: `Mensaje · ${m.rolRemitente}`, ruta: '/coordinacion/mensajes', mensaje: m,
+    clave: `m-${m.id}`, tipo: `Mensaje · ${m.rolRemitente}`, ruta: `${base}/mensajes`, mensaje: m,
     titulo: m.asunto, detalle: `${m.remitente} · ${fechaHoraCorta(m.fechaEnvio)}`,
   })),
   ...tareas,
@@ -150,16 +164,16 @@ const avisos = [
     ...datos.grupos.filter((grupo) => grupo.estatusActa !== 'Cerrada').map((grupo) => ({
       clave: `acta-${grupo.id}`,
       tipo: 'Acta abierta',
-      titulo: `${grupo.clave} · ${grupo.nivel}`,
+      titulo: `${grupo.clave} · ${grupo.intensivo ? 'Intensivo' : grupo.nivel}`,
       detalle: `${grupo.alumnosInscritos} inscritos · facilitador: ${grupo.facilitador}`,
-      ruta: '/coordinacion/grupos',
+      ruta: `${base}/grupos`,
     })),
     ...datos.comprobantes.map((comprobante) => ({
       clave: `comprobante-${comprobante.id}`,
       tipo: 'Comprobante por validar',
       titulo: `${comprobante.alumno} · ${comprobante.concepto}${comprobante.nivel ? ` ${comprobante.nivel}` : ''}`,
       detalle: `Control ${comprobante.numeroControl} · recibido ${fechaCorta(comprobante.fechaCarga)}`,
-      ruta: '/coordinacion/comprobantes',
+      ruta: esSoloLectura ? '/supervision/pagos' : '/coordinacion/comprobantes',
     })),
   ] : [];
   const reporte = datos?.reporte;
@@ -176,9 +190,9 @@ const avisos = [
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-xl font-bold">
-            <CalendarDays className="h-5 w-5" /> Panel de coordinación
+            <CalendarDays className="h-5 w-5" /> {esSoloLectura ? 'Panorama general · Supervisión' : 'Panel de coordinación'}
           </h1>
-          <p className="mt-1 text-sm text-tenue">Consulta académica y notificaciones del periodo seleccionado.</p>
+          <p className="mt-1 text-sm text-tenue">{esSoloLectura ? 'Consulta académica, indicadores y notificaciones (modo de solo lectura).' : 'Consulta académica y notificaciones del periodo seleccionado.'}</p>
         </div>
         {cargandoPeriodos ? <Cargando texto="Cargando periodos…" /> : periodos.length > 0 && (
           <Campo etiqueta="Periodo académico" id="periodoCoordinacion">
@@ -192,8 +206,10 @@ const avisos = [
         )}
       </div>
 
-      <Alerta tipo="info">Bienvenido, {perfil.nombre}. La información de este panel corresponde únicamente al periodo seleccionado.</Alerta>
-      <Link to="/coordinacion/alumnos"
+      <Alerta tipo="info">
+        Bienvenid{perfil?.sexo === 'M' ? 'a' : 'o'}, {perfil?.nombre}. {esSoloLectura ? 'Modo de solo consulta: la información de este panel corresponde únicamente al periodo seleccionado; las operaciones las realiza la coordinación.' : 'La información de este panel corresponde únicamente al periodo seleccionado.'}
+      </Alerta>
+      <Link to={`${base}/alumnos`}
         className="flex max-w-[620px] items-center gap-2 rounded-lg border border-[#C9D1DD] bg-white px-3 py-2 text-tenue hover:border-marino/40">
         <Search className="h-4 w-4" /> Buscar alumno por nombre, número de control, carrera o correo…
       </Link>

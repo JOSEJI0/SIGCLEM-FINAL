@@ -18,7 +18,6 @@ export default function LenguaMaterna() {
   const [registros, setRegistros] = useState([]);
   const [idLengua, setIdLengua] = useState('');
   const [nivelDominio, setNivelDominio] = useState('');
-  const [documento, setDocumento] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
@@ -50,26 +49,19 @@ export default function LenguaMaterna() {
 
   async function enviar(evento) {
     evento.preventDefault();
-    if (!documento) {
-      setError('Selecciona el documento que respalda tu registro.');
+    if (!archivos.curp || !archivos.domicilio || !archivos.ine) {
+      setError('Debes adjuntar los tres documentos: CURP, comprobante de domicilio e INE.');
       return;
     }
     setGuardando(true);
     setError('');
     setAviso('');
     try {
-    await registrarLenguaMaterna({ idLengua: Number(idLengua), nivelDominio: nivelDominio.trim() || null }, archivos);
-    setArchivos({ curp: null, domicilio: null, ine: null }
-    );
-    const ver = (registro, tipo, etiqueta) => verDocumento({
-    titulo: `${etiqueta} · ${registro.lengua}`,
-    nombre: `lengua-${registro.id}-${tipo}`,
-    cargar: () => descargarDocumentoLenguaMaterna(registro.id, tipo),
-    });
-      setAviso('Registro enviado. Coordinación revisará el documento.');
+      await registrarLenguaMaterna({ idLengua: Number(idLengua), nivelDominio: nivelDominio.trim() || null }, archivos);
+      setAviso('Registro enviado. Coordinación revisará los documentos.');
       setIdLengua('');
       setNivelDominio('');
-      setDocumento(null);
+      setArchivos({ curp: null, domicilio: null, ine: null });
       evento.currentTarget.reset();
       await cargar();
     } catch (e) {
@@ -79,13 +71,11 @@ export default function LenguaMaterna() {
     }
   }
 
-  function descargar(registro) {
-    verDocumento({
-      titulo: 'Documento de lengua materna',
-      nombre: `documento-lengua-${registro.id}`,
-      cargar: () => descargarDocumentoLenguaMaterna(registro.id),
-    });
-  }
+  const ver = (registro, tipo, etiqueta) => verDocumento({
+    titulo: `${etiqueta} · ${registro.lengua}`,
+    nombre: `lengua-${registro.id}-${tipo}`,
+    cargar: () => descargarDocumentoLenguaMaterna(registro.id, tipo),
+  });
 
   if (cargando) return <Cargando />;
 
@@ -147,7 +137,7 @@ export default function LenguaMaterna() {
                   <td className="py-3 pr-4">{registro.fechaRegistro}</td>
                   <td className="py-3 pr-4"><Insignia estatus={registro.estatus} /></td>
                   <td className="py-3">
-                    <Boton variante="secundario" type="button" onClick={() => descargar(registro)}>Ver documento</Boton>
+                    <DocumentosLengua registro={registro} onVer={ver} />
                   </td>
                 </tr>
               ))}</tbody>

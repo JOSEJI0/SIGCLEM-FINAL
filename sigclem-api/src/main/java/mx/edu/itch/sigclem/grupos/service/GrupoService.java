@@ -41,6 +41,7 @@ import mx.edu.itch.sigclem.grupos.domain.Inscripcion;
 import mx.edu.itch.sigclem.grupos.domain.PreferenciaGrupo;
 import mx.edu.itch.sigclem.grupos.dto.ActaDTO;
 import mx.edu.itch.sigclem.grupos.dto.CalificacionesRequest;
+import mx.edu.itch.sigclem.grupos.dto.NivelAcreditadoRequest;
 import mx.edu.itch.sigclem.grupos.dto.CrearGrupoRequest;
 import mx.edu.itch.sigclem.grupos.dto.GrupoDTO;
 import mx.edu.itch.sigclem.grupos.dto.HorarioRequest;
@@ -89,9 +90,10 @@ public class GrupoService {
         verificarActaAbierta(grupo);
         long inscritos = inscripcionRepository.countByGrupoId(id);
         if (inscritos > 0 && (!grupo.getNivel().getId().equals(req.idNivel())
-                || !grupo.getPeriodo().getId().equals(req.idPeriodo()))) {
+                || !grupo.getPeriodo().getId().equals(req.idPeriodo())
+                || grupo.isIntensivo() != req.intensivo())) {
             throw new ReglaNegocioException("GRU-014",
-                    "El grupo ya tiene alumnos inscritos: no se puede cambiar su nivel ni su periodo.");
+                    "El grupo ya tiene alumnos inscritos: no se puede cambiar su nivel, periodo o tipo de curso.");
         }
         if (req.cupo() < inscritos) {
             throw new ReglaNegocioException("GRU-015",
@@ -116,6 +118,7 @@ public class GrupoService {
     }
 
     private void aplicarDatos(Grupo grupo, CrearGrupoRequest req, Integer idExcluido) {
+        grupo.setIntensivo(req.intensivo());
         Periodo periodo = periodoRepository.findById(req.idPeriodo())
                 .orElseThrow(() -> new DatosInvalidosException("GRU-001", "El periodo seleccionado no existe."));
         if (periodo.getFechaFin().isBefore(LocalDate.now())) {
@@ -132,6 +135,24 @@ public class GrupoService {
         }
         Aula aula = aulaRepository.findById(req.idAula())
                 .orElseThrow(() -> new DatosInvalidosException("GRU-007", "El aula seleccionada no existe."));
+        if (grupo.isIntensivo()) {
+            modalidad = modalidadRepository.findAllByOrderByNombreAsc().stream()
+                    .filter(m -> "Intensivo virtual".equalsIgnoreCase(m.getNombre()))
+                    .findFirst()
+                    .orElseThrow(() -> new DatosInvalidosException("GRU-017",
+                            "No está configurada la modalidad «Intensivo virtual». Aplica las migraciones de base de datos."));
+            aula = aulaRepository.findAllByOrderByNombreAsc().stream()
+                    .filter(a -> "Virtual".equalsIgnoreCase(a.getNombre()))
+                    .findFirst()
+                    .orElseThrow(() -> new DatosInvalidosException("GRU-018",
+                            "No está configurada el aula «Virtual». Aplica las migraciones de base de datos."));
+            nivel = nivelRepository.findAllByOrderByNumeroAsc().stream().findFirst()
+                    .orElseThrow(() -> new DatosInvalidosException("GRU-019", "No hay niveles configurados."));
+        } else if ("Intensivo virtual".equalsIgnoreCase(modalidad.getNombre())
+                || "Virtual".equalsIgnoreCase(aula.getNombre())) {
+            throw new DatosInvalidosException("GRU-020",
+                    "La modalidad y el espacio virtual están reservados para grupos Intensivos.");
+        }
         String clave = req.clave().trim().toUpperCase();
         boolean claveRepetida = idExcluido == SIN_GRUPO
                 ? grupoRepository.existsByPeriodoIdAndNivelIdAndModalidadIdAndClave(
@@ -141,7 +162,7 @@ public class GrupoService {
         if (claveRepetida) {
             throw new ConflictoException("GRU-008", "Ya existe esa clave de grupo para el nivel, modalidad y periodo.");
         }
-        validarHorarios(req.horarios(), facilitador, aula, periodo.getId(), idExcluido);
+        validarHorarios(req.horarios(), facilitador, aula, periodo.getId(), idExcluido, !grupo.isIntensivo());
 
         grupo.setClave(clave);
         grupo.setNivel(nivel);
@@ -235,6 +256,10 @@ public class GrupoService {
         Grupo grupo = buscarGrupo(id);
         verificarPropietario(grupo, auth);
         verificarPeriodoEditable(grupo);
+        if (grupo.isIntensivo()) {
+            throw new ReglaNegocioException("ACT-011",
+                    "El acta de un curso Intensivo debe cerrarse desde coordinación, que asignará el nivel de cada alumno.");
+        }
         List<Inscripcion> inscripciones = inscripcionesParaCierre(grupo);
         // Regla de negocio: ningún avance académico se registra sin el cargo del curso liquidado.
         Map<Integer, AutorizacionPago> cargos = cargosDe(inscripciones);
@@ -258,13 +283,21 @@ public class GrupoService {
     /**
      * Cierre por coordinación con observación obligatoria, aunque haya alumnos sin liquidar su curso: a quienes ya
      * pagaron se les aplica el nivel; los demás conservan su calificación con el nivel pendiente, que coordinación
-     * asigna después de forma individual ({@link #asignarNivelPendiente}). No depende de las fechas del periodo.
+     * asigna después de forma individual ({@link #asignarNivelPendiente}). En Intensivo se recibe el nivel acreditado
+     * para cada alumno. No depende de las fechas del periodo.
      */
     @Transactional
     public ActaDTO cerrarActaPorCoordinacion(Integer id, String observacion, Authentication auth) {
+        return cerrarActaPorCoordinacion(id, observacion, List.of(), auth);
+    }
+
+    @Transactional
+    public ActaDTO cerrarActaPorCoordinacion(Integer id, String observacion,
+            List<NivelAcreditadoRequest> nivelesAcreditados, Authentication auth) {
         String texto = observacionValida(observacion);
         Grupo grupo = buscarGrupo(id);
         List<Inscripcion> inscripciones = inscripcionesParaCierre(grupo);
+        asignarNivelesIntensivo(grupo, inscripciones, nivelesAcreditados);
         Map<Integer, AutorizacionPago> cargos = cargosDe(inscripciones);
         Map<Integer, Integer> siguientes = siguienteNivelPorNivel();
         List<AjusteAvance> ajustes = new ArrayList<>();
@@ -277,10 +310,44 @@ public class GrupoService {
                         estatusPago(inscripcion, cargos), texto, auth.getName()));
             }
         }
+
         inscripcionRepository.saveAll(inscripciones);
         ajusteAvanceRepository.saveAll(ajustes);
         marcarCerrada(grupo, "Coordinación", texto);
         return ActaDTO.desde(grupo, inscripciones, cargos);
+    }
+
+    private void asignarNivelesIntensivo(Grupo grupo, List<Inscripcion> inscripciones,
+           List<NivelAcreditadoRequest> nivelesAcreditados) {
+       if (!grupo.isIntensivo()) {
+           if (nivelesAcreditados != null && !nivelesAcreditados.isEmpty()) {
+               throw new DatosInvalidosException("ACT-013",
+                       "Los niveles individuales solo aplican al curso Intensivo.");
+           }
+           return;
+       }
+       if (nivelesAcreditados == null || nivelesAcreditados.size() != inscripciones.size()) {
+           throw new DatosInvalidosException("ACT-014",
+                   "Debes seleccionar un nivel acreditado para cada alumno del curso Intensivo.");
+       }
+       Map<Integer, Nivel> nivelesPorId = nivelRepository.findAllByOrderByNumeroAsc().stream()
+               .filter(n -> n.getNumero() >= 1 && n.getNumero() <= 10)
+               .collect(Collectors.toMap(Nivel::getId, Function.identity()));
+       Map<String, Inscripcion> inscripcionesPorAlumno = inscripciones.stream()
+               .collect(Collectors.toMap(i -> i.getAlumno().getNumeroControl(), Function.identity()));
+       for (NivelAcreditadoRequest seleccion : nivelesAcreditados) {
+           Inscripcion inscripcion = inscripcionesPorAlumno.remove(seleccion.numeroControl());
+           Nivel nivel = nivelesPorId.get(seleccion.idNivel());
+           if (inscripcion == null || nivel == null) {
+               throw new DatosInvalidosException("ACT-015",
+                       "Cada alumno debe aparecer una sola vez y tener asignado uno de los diez niveles.");
+           }
+           inscripcion.setNivelAcreditado(nivel);
+       }
+       if (!inscripcionesPorAlumno.isEmpty()) {
+           throw new DatosInvalidosException("ACT-014",
+                   "Debes seleccionar un nivel acreditado para cada alumno del curso Intensivo.");
+       }
     }
 
     /**
@@ -370,8 +437,8 @@ public class GrupoService {
     }
 
     /** Valida rango y traslapes. Ya no se limita al horario institucional de 10:00 a 17:00. */
-    private void validarHorarios(
-            List<HorarioRequest> horarios, Facilitador facilitador, Aula aula, Integer periodoId, Integer idExcluido) {
+    private void validarHorarios(List<HorarioRequest> horarios, Facilitador facilitador, Aula aula, Integer periodoId,
+            Integer idExcluido, boolean espacioFisico) {
         List<HorarioRequest> revisados = new ArrayList<>();
         for (HorarioRequest horario : horarios) {
             LocalTime inicio = horario.horaInicio();
@@ -386,7 +453,7 @@ public class GrupoService {
                 throw new ReglaNegocioException("GRU-010", "Las sesiones del grupo se traslapan entre sí.");
             }
             var conflicto = horarioRepository.buscarTraslape(horario.diaSemana(), inicio, fin,
-                    periodoId, facilitador.getId(), aula.getId(), idExcluido);
+                    periodoId, facilitador.getId(), aula.getId(), espacioFisico, idExcluido);
             if (!conflicto.isEmpty()) {
                 throw new ReglaNegocioException("GRU-011",
                         "El horario se traslapa con el grupo " + conflicto.get(0).getGrupo().getClave()
@@ -397,7 +464,14 @@ public class GrupoService {
     }
 
     private void actualizarAvance(Inscripcion inscripcion, Map<Integer, Integer> siguienteNivelPorNivel) {
-        Integer idNivel = inscripcion.getGrupo().getNivel().getId();
+        Nivel nivel = inscripcion.getGrupo().isIntensivo()
+                ? inscripcion.getNivelAcreditado()
+                : inscripcion.getGrupo().getNivel();
+        if (nivel == null) {
+            throw new ReglaNegocioException("ACT-012",
+                    "Debes asignar el nivel que acredita cada alumno del grupo Intensivo antes de cerrar el acta.");
+        }
+        Integer idNivel = nivel.getId();
         String numeroControl = inscripcion.getAlumno().getNumeroControl();
         AvanceNivel avance = avanceNivelRepository.findByIdNumeroControlAndIdIdNivel(numeroControl, idNivel)
                 .orElseThrow(() -> new ReglaNegocioException("ACT-005",

@@ -51,8 +51,8 @@ export default function MisGrupos() {
 
   function pdf() {
     verDocumento({
-      titulo: `Acta de calificaciones · ${acta.grupo.nivel} ${acta.grupo.clave} · ${acta.grupo.periodo}`,
-      nombre: `acta-${acta.grupo.nivel.replace(/\s+/g, '-')}-${acta.grupo.clave}`,
+      titulo: `Acta de calificaciones · ${acta.grupo.intensivo ? 'Intensivo' : acta.grupo.nivel} ${acta.grupo.clave} · ${acta.grupo.periodo}`,
+      nombre: `acta-${(acta.grupo.intensivo ? 'intensivo' : acta.grupo.nivel).replace(/\s+/g, '-')}-${acta.grupo.clave}`,
       cargar: () => descargarActaPdf(acta.grupo.id),
     });
   }
@@ -77,7 +77,7 @@ export default function MisGrupos() {
                 <button key={g.id} type="button" onClick={() => setParams({ grupo: String(g.id) })}
                   className={`rounded-lg border p-3 text-left transition hover:border-marino/40 ${acta?.grupo.id === g.id ? 'border-marino bg-info-fondo' : 'border-linea'}`}>
                   <span className="flex items-center justify-between gap-2 font-semibold">
-                    {g.nivel} · {g.clave}
+                    {g.intensivo ? 'Intensivo' : g.nivel} · {g.clave}
                     <span className="text-xs font-normal">{g.alumnosInscritos}/{g.cupo} alumnos</span>
                   </span>
                   <span className="mt-1 block text-xs text-tenue">{g.modalidad} · {g.aula} · Acta {g.estatusActa.toLowerCase()}</span>
@@ -90,7 +90,7 @@ export default function MisGrupos() {
         )}
       </Tarjeta>
 
-      <Tarjeta titulo={acta ? `Lista · ${acta.grupo.nivel} ${acta.grupo.clave}` : 'Lista de alumnos'} icono={Users}
+      <Tarjeta titulo={acta ? `Lista · ${acta.grupo.intensivo ? 'Intensivo' : acta.grupo.nivel} ${acta.grupo.clave}` : 'Lista de alumnos'} icono={Users}
         extra={acta && <Insignia estatus={acta.grupo.estatusActa} tono={cerrada ? 'ok' : 'aviso'} />}>
         {cargandoActa ? <Cargando /> : !acta ? (
           <p className="text-sm text-tenue">Selecciona un grupo para ver sus alumnos, su estatus de pago y sus calificaciones.</p>

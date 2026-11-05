@@ -213,11 +213,11 @@ public class DatosDemoService {
             LocalTime inicio = LocalTime.of(hora, 0);
             LocalTime fin = inicio.plusHours(2);
             boolean libre = horarioRepository.buscarTraslape(1, inicio, fin, periodo.getId(), facilitador.getId(),
-                    aula.getId(), -1).isEmpty()
+                    aula.getId(), true, -1).isEmpty()
                     && horarioRepository.buscarTraslape(3, inicio, fin, periodo.getId(), facilitador.getId(),
-                            aula.getId(), -1).isEmpty();
+                            aula.getId(), true, -1).isEmpty();
             if (libre) {
-                GrupoDTO creado = grupoService.abrir(new CrearGrupoRequest(CLAVE_GRUPO, nivel.getId(), periodo.getId(),
+                GrupoDTO creado = grupoService.abrir(new CrearGrupoRequest(CLAVE_GRUPO, nivel.getId(), false, periodo.getId(),
                         modalidad.getId(), facilitador.getId(), aula.getId(), 30,
                         List.of(new HorarioRequest(1, inicio, fin), new HorarioRequest(3, inicio, fin))));
                 acciones.add("Grupo creado: " + nivel.getNombre() + " " + CLAVE_GRUPO + " (id " + creado.id()

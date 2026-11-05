@@ -19,6 +19,7 @@ import { useVisorDocumento } from '../../components/VisorDocumento';
 
 const pesos = (v) => (v == null ? '' : Number(v).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' }));
 const DURACIONES = [[60, '1 h'], [90, '1 h 30'], [120, '2 h'], [180, '3 h'], [240, '4 h']];
+const etiquetaGrupo = (grupo) => `${grupo.intensivo ? 'Intensivo' : grupo.nivel} · Grupo ${grupo.clave}`;
 
 function fechaLocal() {
   const hoy = new Date();
@@ -75,13 +76,14 @@ export default function Grupos({ soloLectura = false }) {
   useEffect(() => { cargarGrupos(); }, [cargarGrupos]);
 
   const nuevoGrupo = () => setEditor({
-    id: null, clave: '', cupo: '30', idPeriodo,
+    id: null, clave: '', cupo: '30', idPeriodo, intensivo: false,
     idNivel: String(catalogos.niveles[0]?.id ?? ''), idModalidad: String(catalogos.modalidades[0]?.id ?? ''),
     idAula: String(catalogos.aulas[0]?.id ?? ''), idFacilitador: String(catalogos.facilitadores.find((f) => f.activo)?.id ?? ''),
     horarios: [],
   });
   const editarExistente = (g) => setEditor({
     id: g.id, clave: g.clave, cupo: String(g.cupo), idPeriodo: String(g.idPeriodo), idNivel: String(g.idNivel),
+    intensivo: g.intensivo,
     idModalidad: String(g.idModalidad), idAula: String(g.idAula), idFacilitador: String(g.idFacilitador),
     inscritos: g.alumnosInscritos,
     horarios: g.horarios.map((h) => ({ diaSemana: h.diaSemana, horaInicio: horaCorta(h.horaInicio), horaFin: horaCorta(h.horaFin) })),
@@ -89,7 +91,7 @@ export default function Grupos({ soloLectura = false }) {
 
   const sesionesPeriodo = grupos.flatMap((g) => g.horarios.map((h, i) => ({
     clave: `${g.id}-${i}`, dia: h.diaSemana, inicio: h.horaInicio, fin: h.horaFin,
-    titulo: `${g.nivel} ${g.clave}`, detalle: `${g.aula} · ${g.facilitador}`, color: colorNivel(g.nivelNumero),
+    titulo: `${g.intensivo ? 'Intensivo' : g.nivel} ${g.clave}`, detalle: `${g.aula} · ${g.facilitador}`, color: colorNivel(g.nivelNumero),
     onClick: () => setPanelAlumnos(g),
   })));
 
@@ -136,8 +138,8 @@ export default function Grupos({ soloLectura = false }) {
             <article key={g.id} className="flex flex-col gap-3 rounded-[10px] border border-linea bg-white p-4">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <div className={`mb-1 inline-block rounded px-2 py-0.5 text-[11px] font-semibold ${colorNivel(g.nivelNumero)}`}>Nivel {g.nivelNumero}</div>
-                  <div className="font-semibold">{g.nivel} · Grupo {g.clave}</div>
+                  <div className={`mb-1 inline-block rounded px-2 py-0.5 text-[11px] font-semibold ${colorNivel(g.nivelNumero)}`}>{g.intensivo ? '10 niveles' : `Nivel ${g.nivelNumero}`}</div>
+                  <div className="font-semibold">{etiquetaGrupo(g)}</div>
                   <div className="text-xs text-tenue">{g.modalidad} · {g.aula}</div>
                   <div className="text-xs text-tenue">{g.facilitador}</div>
                 </div>
@@ -156,7 +158,7 @@ export default function Grupos({ soloLectura = false }) {
                 <div className="h-1.5 rounded bg-neutro-fondo"><div className="h-1.5 rounded bg-marino" style={{ width: `${Math.min(100, (g.alumnosInscritos / g.cupo) * 100)}%` }} /></div>
               </div>
               <div className="mt-auto flex flex-wrap gap-2 border-t border-linea pt-3">
-                <Boton className="flex-1" onClick={() => setPanelAlumnos(g)}><Users className="h-3.5 w-3.5" /> Alumnos</Boton>
+                <Boton className="flex-1" onClick={() => setPanelAlumnos(g)}><Users className="h-3.5 w-3.5" /> Alumnos y acta</Boton>
                 {!esSoloLectura && (
                   <>
                     <Boton variante="secundario" disabled={g.estatusActa === 'Cerrada'} onClick={() => editarExistente(g)}>
@@ -192,7 +194,7 @@ export default function Grupos({ soloLectura = false }) {
           onGuardado={async (msg) => { setEditor(null); setAviso(msg); if (String(editor.idPeriodo) !== idPeriodo) setIdPeriodo(String(editor.idPeriodo)); await cargarGrupos(); }} />
       )}
       {panelAlumnos && (
-        <PanelAlumnos grupo={panelAlumnos} soloLectura={esSoloLectura}
+        <PanelAlumnos grupo={panelAlumnos} niveles={catalogos.niveles} soloLectura={esSoloLectura}
           onCerrar={() => { setPanelAlumnos(null); if (!esSoloLectura) cargarGrupos(); }}
           onEditar={(g) => { setPanelAlumnos(null); editarExistente(g); }} />
       )}
@@ -231,18 +233,24 @@ function EditorGrupo({ editor, setEditor, catalogos, onGuardado }) {
   }, [editor.idPeriodo]);
 
   const sesionesOcupadas = useMemo(() => ocupados
-    .filter((g) => g.id !== editor.id && (String(g.idAula) === editor.idAula || String(g.idFacilitador) === editor.idFacilitador))
+    .filter((g) => g.id !== editor.id && (
+      String(g.idFacilitador) === editor.idFacilitador
+      || (!editor.intensivo && !g.intensivo && String(g.idAula) === editor.idAula)
+    ))
     .flatMap((g) => g.horarios.map((h, i) => ({
       clave: `o-${g.id}-${i}`, dia: h.diaSemana, inicio: h.horaInicio, fin: h.horaFin,
-      titulo: `Ocupado: ${g.nivel} ${g.clave}`,
-      detalle: String(g.idAula) === editor.idAula ? `Aula ${g.aula}` : `Facilitador ${g.facilitador}`,
+      titulo: `Ocupado: ${g.intensivo ? 'Intensivo' : g.nivel} ${g.clave}`,
+      detalle: String(g.idFacilitador) === editor.idFacilitador
+        ? `Facilitador ${g.facilitador}` : `Aula ${g.aula}`,
       color: 'bg-neutro-fondo border-neutro text-tenue', atenuada: true,
     }))), [ocupados, editor.id, editor.idAula, editor.idFacilitador]);
 
   const nivel = catalogos.niveles.find((n) => String(n.id) === editor.idNivel);
+  const modalidadVirtual = catalogos.modalidades.find((m) => m.nombre.toLowerCase() === 'intensivo virtual');
+  const aulaVirtual = catalogos.aulas.find((a) => a.nombre.toLowerCase() === 'virtual');
   const propias = editor.horarios.map((h, i) => ({
     clave: `p-${i}`, dia: h.diaSemana, inicio: h.horaInicio, fin: h.horaFin,
-    titulo: `${nivel?.nombre ?? 'Grupo'} ${editor.clave || ''}`, detalle: 'Clic para quitar',
+    titulo: `${editor.intensivo ? 'Intensivo' : nivel?.nombre ?? 'Grupo'} ${editor.clave || ''}`, detalle: 'Clic para quitar',
     color: colorNivel(nivel?.numero), onClick: () => setEditor({ ...editor, horarios: editor.horarios.filter((_, j) => j !== i) }),
   }));
 
@@ -264,11 +272,14 @@ function EditorGrupo({ editor, setEditor, catalogos, onGuardado }) {
     const datos = {
       clave: editor.clave, cupo: Number(editor.cupo), idNivel: Number(editor.idNivel), idPeriodo: Number(editor.idPeriodo),
       idModalidad: Number(editor.idModalidad), idAula: Number(editor.idAula), idFacilitador: Number(editor.idFacilitador),
+      intensivo: Boolean(editor.intensivo),
       horarios: editor.horarios.map((h) => ({ diaSemana: Number(h.diaSemana), horaInicio: h.horaInicio, horaFin: h.horaFin })),
     };
     try {
       if (editor.id) await editarGrupo(editor.id, datos); else await abrirGrupo(datos);
-      await onGuardado(editor.id ? 'Grupo actualizado.' : 'Grupo abierto: ya aparece en los cursos disponibles de los alumnos de ese nivel.');
+      await onGuardado(editor.id ? 'Grupo actualizado.' : editor.intensivo
+        ? 'Grupo Intensivo virtual abierto; coordinación puede asignar alumnos de cualquier nivel.'
+        : 'Grupo abierto: ya aparece en los cursos disponibles de los alumnos de ese nivel.');
     } catch (err) {
       setError(mensajeError(err));
     } finally {
@@ -284,12 +295,17 @@ function EditorGrupo({ editor, setEditor, catalogos, onGuardado }) {
       <form className="grid gap-5 lg:grid-cols-[300px_1fr]" onSubmit={guardar}>
         <div className="grid content-start gap-3">
           {conAlumnos && <Alerta tipo="info">El grupo tiene alumnos: no se pueden cambiar el nivel ni el periodo.</Alerta>}
-          <div className="flex gap-2">
-  <Boton variante="secundario" onClick={verActa}>
-    <Eye className="h-3.5 w-3.5" /> {cerrada ? 'Ver acta (PDF)' : 'Ver acta preliminar (PDF)'}
-  </Boton>
-  {!cerrada && !soloLectura && <Boton variante="secundario" onClick={() => onEditar(g)}><Pencil className="h-3.5 w-3.5" /> Editar grupo</Boton>}
-</div>
+          <label className="flex items-center gap-2 rounded-lg border border-linea p-3 text-[13px] font-semibold">
+            <input type="checkbox" checked={Boolean(editor.intensivo)} disabled={conAlumnos}
+              onChange={(e) => setEditor({
+                ...editor,
+                intensivo: e.target.checked,
+                ...(e.target.checked && modalidadVirtual && aulaVirtual
+                  ? { idModalidad: String(modalidadVirtual.id), idAula: String(aulaVirtual.id) }
+                  : {}),
+              })} />
+            Curso Intensivo virtual (ruta de Básico 1 a Intermedio 5)
+          </label>
           <div className="grid grid-cols-2 gap-3">
             <Campo etiqueta="Clave (A–Z)" id="clave">
               <input id="clave" className={claseEntrada} maxLength="2" pattern="[A-Za-z]{1,2}" required value={editor.clave} onChange={cambiar('clave')} />
@@ -303,21 +319,25 @@ function EditorGrupo({ editor, setEditor, catalogos, onGuardado }) {
               {opciones(catalogos.periodos.filter((p) => p.fechaFin >= fechaLocal() || String(p.id) === editor.idPeriodo), (p) => p.nombre)}
             </select>
           </Campo>
-          <Campo etiqueta="Nivel" id="ed-nivel">
+          {!editor.intensivo && <Campo etiqueta="Nivel" id="ed-nivel">
             <select id="ed-nivel" required disabled={conAlumnos} className={claseEntrada} value={editor.idNivel} onChange={cambiar('idNivel')}>
               {opciones(catalogos.niveles, (n) => `${n.numero}. ${n.nombre} (${n.nivelMcer})`)}
             </select>
-          </Campo>
-          <Campo etiqueta="Modalidad" id="ed-modalidad">
+          </Campo>}
+          {!editor.intensivo && <Campo etiqueta="Modalidad" id="ed-modalidad">
             <select id="ed-modalidad" required className={claseEntrada} value={editor.idModalidad} onChange={cambiar('idModalidad')}>
               {opciones(catalogos.modalidades, (m) => m.nombre)}
             </select>
-          </Campo>
-          <Campo etiqueta="Aula" id="ed-aula">
+          </Campo>}
+          {!editor.intensivo && <Campo etiqueta="Aula" id="ed-aula">
             <select id="ed-aula" required className={claseEntrada} value={editor.idAula} onChange={cambiar('idAula')}>
               {opciones(catalogos.aulas, (a) => a.nombre)}
             </select>
-          </Campo>
+          </Campo>}
+          {editor.intensivo && <div className="rounded-lg bg-info-fondo p-3 text-xs text-marino">
+            Modalidad Intensivo virtual y espacio Virtual asignados automáticamente.
+            {(!modalidadVirtual || !aulaVirtual) && <p className="mt-1 font-semibold">Aplica la migración V27 para habilitar esta opción.</p>}
+          </div>}
           <Campo etiqueta="Facilitador" id="ed-fac">
             <select id="ed-fac" required className={claseEntrada} value={editor.idFacilitador} onChange={cambiar('idFacilitador')}>
               {opciones(catalogos.facilitadores.filter((f) => f.activo || String(f.id) === editor.idFacilitador), (f) => f.nombreCompleto)}
@@ -326,13 +346,13 @@ function EditorGrupo({ editor, setEditor, catalogos, onGuardado }) {
           {error && <Alerta tipo="error">{error}</Alerta>}
           <div className="flex gap-2">
             <Boton type="button" variante="secundario" onClick={() => setEditor(null)}>Cancelar</Boton>
-            <Boton type="submit" className="flex-1" disabled={guardando}>{guardando ? 'Guardando…' : editor.id ? 'Guardar cambios' : 'Abrir grupo'}</Boton>
+            <Boton type="submit" className="flex-1" disabled={guardando || (editor.intensivo && (!modalidadVirtual || !aulaVirtual))}>{guardando ? 'Guardando…' : editor.id ? 'Guardar cambios' : 'Abrir grupo'}</Boton>
           </div>
         </div>
 
         <div className="grid content-start gap-3">
           <div className="flex flex-wrap items-center justify-between gap-2 text-[13px]">
-            <span className="text-tenue">Haz clic en una hora libre para agregar una sesión; clic en una sesión para quitarla. En gris: horarios ya ocupados del aula o del facilitador.</span>
+            <span className="text-tenue">Haz clic en una hora libre para agregar una sesión; clic en una sesión para quitarla. En gris: horarios ya ocupados {editor.intensivo ? 'del facilitador.' : 'del aula o del facilitador.'}</span>
             <label className="flex items-center gap-2 font-semibold">Duración
               <select className="rounded-lg border border-[#C9D1DD] px-2 py-1" value={duracion} onChange={(e) => setDuracion(Number(e.target.value))}>
                 {DURACIONES.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
@@ -363,7 +383,7 @@ function EditorGrupo({ editor, setEditor, catalogos, onGuardado }) {
 }
 
 /** Alumnos del grupo: asignados (con su papeleta de pago) e interesados de la encuesta; asignar o quitar. */
-function PanelAlumnos({ grupo, onCerrar, onEditar, soloLectura = false }) {
+function PanelAlumnos({ grupo, niveles, onCerrar, onEditar, soloLectura = false }) {
   const [detalle, setDetalle] = useState(null);
   const [candidatos, setCandidatos] = useState([]);
   const [numeroControl, setNumeroControl] = useState('');
@@ -376,8 +396,9 @@ function PanelAlumnos({ grupo, onCerrar, onEditar, soloLectura = false }) {
 
   useEffect(() => {
     alumnosDelGrupo(grupo.id).then(setDetalle).catch((e) => setError(mensajeError(e)));
-    buscarAlumnos({ nivel: grupo.nivelNumero, tamano: 100 }).then((p) => setCandidatos(p.content)).catch(() => {});
-  }, [grupo.id, grupo.nivelNumero]);
+    buscarAlumnos(grupo.intensivo ? { tamano: 100 } : { nivel: grupo.nivelNumero, tamano: 100 })
+      .then((p) => setCandidatos(p.content)).catch(() => {});
+  }, [grupo.id, grupo.nivelNumero, grupo.intensivo]);
 
   const ejecutar = async (clave, fn, mensaje) => {
     setOcupado(clave);
@@ -396,9 +417,9 @@ function PanelAlumnos({ grupo, onCerrar, onEditar, soloLectura = false }) {
 
   const verDocumento = useVisorDocumento();
   const verActa = () => verDocumento({
-  titulo: `Acta de calificaciones · ${g.nivel} ${g.clave} · ${g.periodo}`,
-  nombre: `acta-${g.nivel.replace(/\s+/g, '-')}-${g.clave}`,
-  cargar: () => descargarActaPdf(g.id),
+    titulo: `Acta de calificaciones · ${etiquetaGrupo(g)} · ${g.periodo}`,
+    nombre: `acta-${(g.intensivo ? 'intensivo' : g.nivel).replace(/\s+/g, '-')}-${g.clave}`,
+    cargar: () => descargarActaPdf(g.id),
   });
 
   const asignar = (nc) => ejecutar(nc, () => asignarAlumno(grupo.id, nc), `Alumno ${nc} asignado; se generó su papeleta de pago.`);
@@ -412,10 +433,15 @@ function PanelAlumnos({ grupo, onCerrar, onEditar, soloLectura = false }) {
   const nombrePorNc = Object.fromEntries(inscritos.map((a) => [a.numeroControl, a.nombreCompleto]));
 
   return (
-    <Modal titulo={`${g.nivel} · Grupo ${g.clave}`} onCerrar={onCerrar} ancho="max-w-4xl">
+    <Modal titulo={etiquetaGrupo(g)} onCerrar={onCerrar} ancho="max-w-4xl">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-[13px] text-tenue">
         <span>{g.periodo} · {g.modalidad} · {g.aula} · {g.facilitador} · {g.horarios.map((h) => `${DIAS[h.diaSemana - 1].slice(0, 3)} ${horaCorta(h.horaInicio)}–${horaCorta(h.horaFin)}`).join(', ')}</span>
-        {!cerrada && !soloLectura && <Boton variante="secundario" onClick={() => onEditar(g)}><Pencil className="h-3.5 w-3.5" /> Editar grupo</Boton>}
+        <div className="flex flex-wrap items-center gap-2">
+          <Boton variante="secundario" onClick={verActa}>
+            <Eye className="h-3.5 w-3.5" /> Descargar acta {cerrada ? "" : "(preliminar)"}
+          </Boton>
+          {!cerrada && !soloLectura && <Boton variante="secundario" onClick={() => onEditar(g)}><Pencil className="h-3.5 w-3.5" /> Editar grupo</Boton>}
+        </div>
       </div>
       {error && <Alerta tipo="error" className="mb-3">{error}</Alerta>}
       {aviso && <Alerta tipo="ok" className="mb-3">{aviso}</Alerta>}
@@ -429,7 +455,8 @@ function PanelAlumnos({ grupo, onCerrar, onEditar, soloLectura = false }) {
                   <li key={a.numeroControl} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[13px] font-semibold">{a.nombreCompleto}</div>
-                      <div className="text-xs text-tenue">{a.numeroControl}{a.calificacionFinal != null ? ` · Calificación ${a.calificacionFinal}` : ''}</div>
+                      <div className="text-xs text-tenue">{a.numeroControl}{a.calificacionFinal != null ? ` · Calificación ${a.calificacionFinal}` : ''}
+                        {a.nivelAcreditado ? ` · Nivel ${a.nivelAcreditado}` : ''}</div>
                     </div>
                     <div className="text-right text-xs">
                       <Insignia estatus={a.estatusPago} />
@@ -455,7 +482,8 @@ function PanelAlumnos({ grupo, onCerrar, onEditar, soloLectura = false }) {
             )}
             {!cerrada && !soloLectura && (
               <form className="mt-4 flex gap-2" onSubmit={(e) => { e.preventDefault(); if (numeroControl.trim()) asignar(numeroControl.trim().toUpperCase()); }}>
-                <input list="candidatos-grupo" className={claseEntrada} placeholder={`Número de control (alumnos de ${g.nivel})`}
+                <input list="candidatos-grupo" className={claseEntrada}
+                  placeholder={g.intensivo ? 'Número de control (cualquier nivel)' : `Número de control (alumnos de ${g.nivel})`}
                   value={numeroControl} onChange={(e) => setNumeroControl(e.target.value.toUpperCase())} />
                 <datalist id="candidatos-grupo">
                   {candidatos.filter((c) => !inscritosNc.has(c.numeroControl)).map((c) => (
@@ -466,10 +494,9 @@ function PanelAlumnos({ grupo, onCerrar, onEditar, soloLectura = false }) {
               </form>
             )}
             <p className="mt-2 text-xs text-tenue">{soloLectura ? 'Consulta de alumnos del grupo y su estatus de pago.' : 'Al asignar a un alumno se genera automáticamente su papeleta de pago con la tarifa vigente del nivel. El facilitador cierra el acta cuando todos liquidaron su curso; si no, coordinación puede cerrarla con una observación.'}</p>
-            {!soloLectura && (
-              <SeccionActa grupo={g} cerrada={cerrada} todasCapturadas={todasCapturadas} sinLiquidar={sinLiquidar}
-                ocupado={Boolean(ocupado)} onCerrar={() => setObservar({ tipo: 'cierre' })} />
-            )}
+            <SeccionActa grupo={g} cerrada={cerrada} todasCapturadas={todasCapturadas} sinLiquidar={sinLiquidar}
+              ocupado={Boolean(ocupado)} onCerrar={() => setObservar({ tipo: "cierre" })}
+              onVerActa={verActa} soloLectura={soloLectura} />
             {detalle.observaciones?.length > 0 && (
               <div className="mt-4">
                 <h4 className="mb-2 text-sm font-semibold">Observaciones de coordinación</h4>
@@ -509,12 +536,14 @@ function PanelAlumnos({ grupo, onCerrar, onEditar, soloLectura = false }) {
         </div>
       )}
       {observar && (
-        <ModalObservacion grupo={g} observar={observar} sinLiquidar={sinLiquidar} onCancelar={() => setObservar(null)}
-          onConfirmar={(texto) => {
+        <ModalObservacion grupo={g} observar={observar} alumnos={inscritos} niveles={niveles}
+          sinLiquidar={sinLiquidar} onCancelar={() => setObservar(null)}
+          onConfirmar={(texto, nivelesAcreditados) => {
             const actual = observar;
             setObservar(null);
             if (actual.tipo === 'cierre') {
-              ejecutar('cierre', () => cerrarActaCoordinacion(grupo.id, texto), 'Acta cerrada por coordinación con la observación registrada.');
+              ejecutar('cierre', () => cerrarActaCoordinacion(grupo.id, texto, nivelesAcreditados),
+                'Acta cerrada por coordinación con la observación registrada.');
             } else {
               ejecutar(actual.alumno.numeroControl, () => asignarNivelPendiente(grupo.id, actual.alumno.numeroControl, texto),
                 `Nivel asignado a ${actual.alumno.nombreCompleto}.`);
@@ -540,13 +569,16 @@ function PanelAlumnos({ grupo, onCerrar, onEditar, soloLectura = false }) {
 }
 
 /** Estado del acta en la vista de coordinación y botón para cerrarla con observación. */
-function SeccionActa({ grupo, cerrada, todasCapturadas, sinLiquidar, ocupado, onCerrar }) {
+function SeccionActa({ grupo, cerrada, todasCapturadas, sinLiquidar, ocupado, onCerrar, onVerActa, soloLectura }) {
   if (cerrada) {
     return (
       <div className="mt-4 rounded-lg border border-linea bg-fondo px-3 py-2.5 text-[13px]">
-        <div className="flex items-center gap-2 font-semibold"><Lock className="h-4 w-4" /> Acta cerrada
-          {grupo.fechaCierreActa && ` el ${new Date(`${grupo.fechaCierreActa}T00:00:00`).toLocaleDateString('es-MX')}`}
-          {grupo.cerradaPor && ` por ${grupo.cerradaPor.toLowerCase()}`}</div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 font-semibold"><Lock className="h-4 w-4" /> Acta cerrada
+            {grupo.fechaCierreActa && ` el ${new Date(`${grupo.fechaCierreActa}T00:00:00`).toLocaleDateString("es-MX")}`}
+            {grupo.cerradaPor && ` por ${grupo.cerradaPor.toLowerCase()}`}</div>
+          <Boton variante="secundario" onClick={onVerActa}><Eye className="h-3.5 w-3.5" /> Descargar acta PDF</Boton>
+        </div>
         {grupo.observacionCierre && <p className="mt-1"><b>Observación:</b> {grupo.observacionCierre}</p>}
       </div>
     );
@@ -554,14 +586,20 @@ function SeccionActa({ grupo, cerrada, todasCapturadas, sinLiquidar, ocupado, on
   return (
     <div className="mt-4 rounded-lg border border-linea px-3 py-2.5 text-[13px]">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="font-semibold">Cierre del acta</span>
-        <Boton variante="secundario" disabled={!todasCapturadas || ocupado} onClick={onCerrar}>
-          <NotebookPen className="h-4 w-4" /> Cerrar acta con observación
-        </Boton>
+        <span className="font-semibold">Acta de calificaciones ({grupo.estatusActa || "En captura"})</span>
+        <div className="flex flex-wrap gap-2">
+          <Boton variante="secundario" onClick={onVerActa}><Eye className="h-3.5 w-3.5" /> Descargar acta (preliminar)</Boton>
+          {!soloLectura && (
+            <Boton variante="secundario" disabled={!todasCapturadas || ocupado} onClick={onCerrar}>
+              <NotebookPen className="h-4 w-4" /> Cerrar acta con observación
+            </Boton>
+          )}
+        </div>
       </div>
       <p className="mt-1 text-xs text-tenue">
-        {!todasCapturadas ? 'El facilitador aún no captura todas las calificaciones.'
-          : sinLiquidar.length === 0 ? 'Todos liquidaron su curso; el facilitador puede cerrar el acta.'
+        {!todasCapturadas ? "El facilitador aún no captura todas las calificaciones; puedes descargar el acta preliminar."
+          : grupo.intensivo ? "Todas las calificaciones están capturadas; coordinación debe seleccionar el nivel de cada alumno y cerrar el acta."
+          : sinLiquidar.length === 0 ? "Todos liquidaron su curso; el facilitador o coordinación pueden cerrar el acta."
             : `${sinLiquidar.length} alumno(s) sin liquidar: conservarán su calificación y su nivel quedará pendiente hasta asignarlo.`}
       </p>
     </div>
@@ -569,16 +607,37 @@ function SeccionActa({ grupo, cerrada, todasCapturadas, sinLiquidar, ocupado, on
 }
 
 /** Captura de la observación obligatoria para cerrar el acta o asignar un nivel pendiente. */
-function ModalObservacion({ grupo, observar, sinLiquidar, onCancelar, onConfirmar }) {
+function ModalObservacion({ grupo, observar, alumnos, niveles, sinLiquidar, onCancelar, onConfirmar }) {
   const [texto, setTexto] = useState('');
+  const [nivelPorAlumno, setNivelPorAlumno] = useState(() => Object.fromEntries(
+    alumnos.map((alumno) => [
+      alumno.numeroControl,
+      alumno.idNivelAcreditado ? String(alumno.idNivelAcreditado) : '',
+    ]),
+  ));
   const valido = texto.trim().length >= 10;
   const esCierre = observar.tipo === 'cierre';
   const a = observar.alumno;
+  const nivelesCompletos = !grupo.intensivo || alumnos.every((alumno) => nivelPorAlumno[alumno.numeroControl]);
   return (
     <Modal titulo={esCierre ? 'Cerrar acta desde coordinación' : 'Asignar nivel pendiente'} onCerrar={onCancelar} ancho="max-w-lg">
       {esCierre ? (
         <div className="text-[13px]">
-          <p>Se cerrará el acta de <b>{grupo.nivel} · Grupo {grupo.clave}</b>. Quienes liquidaron su curso reciben su nivel ahora.</p>
+          <p>Se cerrará el acta de <b>{etiquetaGrupo(grupo)}</b>. {grupo.intensivo
+            ? 'Elige el nivel que acreditará la calificación final de cada alumno.'
+            : 'Quienes liquidaron su curso reciben su nivel ahora.'}</p>
+          {grupo.intensivo && <div className="mt-3 grid max-h-52 gap-2 overflow-y-auto">
+            {alumnos.map((alumno) => (
+              <Campo key={alumno.numeroControl} etiqueta={`${alumno.nombreCompleto} · ${alumno.numeroControl}`}
+                id={`nivel-${alumno.numeroControl}`}>
+                <select className={claseEntrada} required value={nivelPorAlumno[alumno.numeroControl] || ''}
+                  onChange={(e) => setNivelPorAlumno({ ...nivelPorAlumno, [alumno.numeroControl]: e.target.value })}>
+                  <option value="">Selecciona el nivel acreditado</option>
+                  {niveles.map((nivel) => <option key={nivel.id} value={nivel.id}>{nivel.numero}. {nivel.nombre}</option>)}
+                </select>
+              </Campo>
+            ))}
+          </div>}
           {sinLiquidar.length > 0 && (
             <>
               <p className="mt-2">Sin liquidar (calificación registrada, nivel pendiente):</p>
@@ -591,6 +650,7 @@ function ModalObservacion({ grupo, observar, sinLiquidar, onCancelar, onConfirma
       ) : (
         <div className="text-[13px]">
           <p><b>{a.nombreCompleto}</b> ({a.numeroControl}) · Calificación <b>{a.calificacionFinal}</b> · Pago: <b>{a.estatusPago}</b></p>
+          {grupo.intensivo && a.nivelAcreditado && <p className="mt-1">Nivel a actualizar: <b>{a.nivelAcreditado}</b>.</p>}
           <p className="mt-1">Se registrará el nivel como <b>{a.calificacionFinal >= 70 ? 'Acreditado' : 'Reprobado'}</b> y, si acreditó,
             se habilitará el siguiente nivel.</p>
           {a.estatusPago !== 'Liquidada' && (
@@ -609,7 +669,13 @@ function ModalObservacion({ grupo, observar, sinLiquidar, onCancelar, onConfirma
       </div>
       <div className="mt-5 flex justify-end gap-2">
         <Boton variante="secundario" onClick={onCancelar}>Cancelar</Boton>
-        <Boton disabled={!valido} onClick={() => onConfirmar(texto.trim())}>{esCierre ? 'Cerrar acta' : 'Asignar nivel'}</Boton>
+        <Boton disabled={!valido || (esCierre && !nivelesCompletos)}
+          onClick={() => onConfirmar(texto.trim(), grupo.intensivo
+            ? alumnos.map((alumno) => ({
+              numeroControl: alumno.numeroControl,
+              idNivel: Number(nivelPorAlumno[alumno.numeroControl]),
+            }))
+            : [])}>{esCierre ? 'Cerrar acta' : 'Asignar nivel'}</Boton>
       </div>
     </Modal>
   );

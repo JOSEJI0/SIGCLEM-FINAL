@@ -29,12 +29,14 @@ import mx.edu.itch.sigclem.alumnos.domain.Alumno;
 import mx.edu.itch.sigclem.alumnos.domain.AvanceNivel;
 import mx.edu.itch.sigclem.alumnos.domain.EstatusAvance;
 import mx.edu.itch.sigclem.alumnos.repository.AvanceNivelRepository;
+import mx.edu.itch.sigclem.catalogos.domain.Nivel;
 import mx.edu.itch.sigclem.catalogos.repository.NivelRepository;
 import mx.edu.itch.sigclem.comun.excepcion.DatosInvalidosException;
 import mx.edu.itch.sigclem.comun.excepcion.ReglaNegocioException;
 import mx.edu.itch.sigclem.grupos.domain.AjusteAvance;
 import mx.edu.itch.sigclem.grupos.domain.Grupo;
 import mx.edu.itch.sigclem.grupos.domain.Inscripcion;
+import mx.edu.itch.sigclem.grupos.dto.NivelAcreditadoRequest;
 import mx.edu.itch.sigclem.grupos.repository.AjusteAvanceRepository;
 import mx.edu.itch.sigclem.grupos.repository.GrupoRepository;
 import mx.edu.itch.sigclem.grupos.repository.InscripcionRepository;
@@ -120,6 +122,44 @@ class CierrePorCoordinacionTest {
         assertEquals(AjusteAvance.NIVEL_ASIGNADO, ajuste.getValue().getTipo());
         assertEquals("Acreditado", ajuste.getValue().getEstatusNuevo());
         assertEquals("Liquidada", ajuste.getValue().getEstatusPago());
+    }
+
+    @Test
+    void cierreIntensivoActualizaElNivelQueCoordinacionEligioParaElAlumno() {
+        Grupo grupo = grupoAbierto();
+        when(grupo.isIntensivo()).thenReturn(true);
+        Nivel nivelElegido = mock(Nivel.class);
+        when(nivelElegido.getId()).thenReturn(6);
+        when(nivelElegido.getNumero()).thenReturn(6);
+        when(nivelElegido.getNombre()).thenReturn("Intermedio 1");
+        Inscripcion alumno = inscripcion(grupo, "22520003", 92, 8);
+        AvanceNivel avance = new AvanceNivel("22520003", 6, EstatusAvance.CURSANDO);
+        when(inscripcionRepository.findByGrupoId(4)).thenReturn(List.of(alumno));
+        when(nivelRepository.findAllByOrderByNumeroAsc()).thenReturn(List.of(nivelElegido));
+        when(autorizacionRepository.findByIdIn(anyList())).thenReturn(List.of(cargo(8, "Liquidada")));
+        when(avanceNivelRepository.findByIdNumeroControlAndIdIdNivel("22520003", 6))
+                .thenReturn(Optional.of(avance));
+
+        service.cerrarActaPorCoordinacion(4, OBSERVACION,
+                List.of(new NivelAcreditadoRequest("22520003", 6)), coordinador());
+
+        assertEquals(6, alumno.getNivelAcreditado().getId());
+        assertEquals(EstatusAvance.ACREDITADO, avance.getEstatus());
+        verify(avanceNivelRepository).findByIdNumeroControlAndIdIdNivel("22520003", 6);
+        verify(avanceNivelRepository, never()).findByIdNumeroControlAndIdIdNivel("22520003", 0);
+    }
+
+    @Test
+    void cierreIntensivoExigeUnNivelPorAlumno() {
+        Grupo grupo = grupoAbierto();
+        when(grupo.isIntensivo()).thenReturn(true);
+        when(inscripcionRepository.findByGrupoId(4)).thenReturn(List.of(inscripcion(grupo, "22520003", 92, 8)));
+
+        assertThrows(DatosInvalidosException.class,
+                () -> service.cerrarActaPorCoordinacion(4, OBSERVACION, List.of(), coordinador()));
+
+        verify(autorizacionRepository, never()).findByIdIn(anyList());
+        verify(grupoRepository, never()).save(grupo);
     }
 
     @Test

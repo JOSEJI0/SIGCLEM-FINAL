@@ -16,7 +16,8 @@ public interface HorarioRepository extends JpaRepository<Horario, Integer> {
             where h.diaSemana = :dia
               and h.horaInicio < :fin and h.horaFin > :inicio
               and h.grupo.periodo.id = :periodoId
-              and (h.grupo.facilitador.id = :facilitadorId or h.grupo.aula.id = :aulaId)
+              and (h.grupo.facilitador.id = :facilitadorId
+                   or (:espacioFisico = true and h.grupo.aula.id = :aulaId and h.grupo.intensivo = false))
               and h.grupo.id <> :grupoExcluido
             """)
     // Devuelve una lista: con Optional, dos o más traslapes simultáneos lanzaban
@@ -28,5 +29,6 @@ public interface HorarioRepository extends JpaRepository<Horario, Integer> {
             @Param("periodoId") Integer periodoId,
             @Param("facilitadorId") Integer facilitadorId,
             @Param("aulaId") Integer aulaId,
+            @Param("espacioFisico") boolean espacioFisico,
             @Param("grupoExcluido") Integer grupoExcluido);
 }

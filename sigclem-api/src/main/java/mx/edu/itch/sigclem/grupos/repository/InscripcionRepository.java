@@ -4,10 +4,15 @@ import java.util.List;
 
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
 import mx.edu.itch.sigclem.grupos.domain.Inscripcion;
 
 public interface InscripcionRepository extends JpaRepository<Inscripcion, Integer> {
+
+    @EntityGraph(attributePaths = { "alumno", "alumno.carrera", "grupo", "grupo.nivel", "grupo.periodo" })
+    @Query("select i from Inscripcion i")
+    List<Inscripcion> findAllConDatosHistoricos();
 
     long countByGrupoId(Integer grupoId);
 

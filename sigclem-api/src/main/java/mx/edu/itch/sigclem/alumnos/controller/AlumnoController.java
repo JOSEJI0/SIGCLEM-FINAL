@@ -40,9 +40,9 @@ public class AlumnoController {
     private final mx.edu.itch.sigclem.alumnos.service.ImportacionAlumnosService importacionService;
     private final mx.edu.itch.sigclem.auditoria.service.AuditoriaService auditoria;
 
-    @Operation(summary = "Cargar alumnos desde un archivo Excel",
-            description = "Rol: [Coordinador]. Crea las cuentas (contraseña inicial = número de control) e informa qué "
-                    + "filas fallaron. Usa la plantilla de /alumnos/plantilla.")
+    @Operation(summary = "Importar alumnos e histórico desde Excel",
+            description = "Rol: [Coordinador]. Importa alumnos, grupos históricos cerrados, horarios y calificaciones "
+                    + "sin generar cargos. Acepta el concentrado General anterior y la plantilla histórica previa.")
     @PostMapping(value = "/carga", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasRole('COORDINADOR')")
     public mx.edu.itch.sigclem.alumnos.dto.ResultadoCargaDTO cargar(
@@ -51,24 +51,25 @@ public class AlumnoController {
         var resultado = importacionService.importar(archivo);
         auditoria.registrar(mx.edu.itch.sigclem.auditoria.domain.AccionAuditoria.ALUMNOS_IMPORTADOS,
                 mx.edu.itch.sigclem.auditoria.domain.RegistroAuditoria.OK,
-                resultado.creados() + " de " + resultado.filas() + " filas creadas desde Excel.");
+                resultado.creados() + " alumnos nuevos y " + resultado.inscripcionesImportadas()
+                        + " inscripciones históricas procesadas desde Excel.");
         return resultado;
     }
 
-    @Operation(summary = "Descargar la plantilla de Excel para la carga de alumnos", description = "Rol: [Coordinador]")
+    @Operation(summary = "Descargar el histórico y plantilla de Excel", description = "Rol: [Coordinador]")
     @GetMapping("/plantilla")
     @PreAuthorize("hasRole('COORDINADOR')")
     public ResponseEntity<byte[]> plantilla() {
         return ResponseEntity.ok()
                 .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename=\"plantilla-alumnos.xlsx\"")
+                        "attachment; filename=\"plantilla-historico-sigclem.xlsx\"")
                 .contentType(org.springframework.http.MediaType.parseMediaType(
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
                 .body(importacionService.plantilla());
     }
 
     /** Ficha única: avance, historial, pagos, exámenes, diagnósticos, constancias y lengua materna. */
-    @GetMapping("/{numeroControl}/integral")
+    @GetMapping({ "/{numeroControl}/integral", "/{numeroControl}/expediente-integral" })
     @PreAuthorize("hasAnyRole('COORDINADOR','JEFA_DGTV')")
     @Operation(summary = "Expediente integral del alumno", description = "Rol: [Coordinador][Jefa DGTV]")
     public mx.edu.itch.sigclem.alumnos.dto.ExpedienteIntegralDTO integral(@PathVariable String numeroControl) {
@@ -129,7 +130,8 @@ public class AlumnoController {
     }
 
     @Operation(summary = "Liberar la lengua extranjera por otra forma",
-            description = "Rol: [Coordinador]. Formas: examen global, lengua materna u otra. Deja el idioma acreditado.")
+            description = "Rol: [Coordinador]. Formas: examen global, curso intensivo, lengua materna u otra. "
+                    + "La coordinación confirma manualmente pago y aprobación antes de liberar.")
     @PostMapping("/{numeroControl}/liberacion")
     @PreAuthorize("hasRole('COORDINADOR')")
     public ExpedienteDTO liberar(@PathVariable String numeroControl,
@@ -146,7 +148,7 @@ public class AlumnoController {
      * CU-03 Consultar expediente.
      * En producción: @PreAuthorize("hasAnyRole('COORDINADOR','JEFA_DGTV') or (hasRole('ALUMNO') and #numeroControl == authentication.name)")
      */
-    @GetMapping("/{numeroControl}")
+    @GetMapping({ "/{numeroControl}", "/{numeroControl}/expediente" })
     @PreAuthorize("hasAnyRole('COORDINADOR','JEFA_DGTV') or (hasRole('ALUMNO') and #numeroControl == authentication.name)")
     @Operation(summary = "Consultar expediente", description = "Rol: [Coordinador][Jefa DGTV][Alumno]")
     public ExpedienteDTO expediente(@PathVariable String numeroControl) {

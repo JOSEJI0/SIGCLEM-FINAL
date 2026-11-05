@@ -7,7 +7,12 @@ import java.util.List;
  * crearon y el detalle de las filas con error (para que el coordinador las corrija y vuelva a subirlas).
  *
  */
-public record ResultadoCargaDTO(int filas, int creados,  int nivelesImportados, List<FilaConError> errores) {
+public record ResultadoCargaDTO(int filas, int creados, int nivelesImportados, int gruposImportados,
+        int inscripcionesImportadas, List<FilaConError> errores) {
+
+    public ResultadoCargaDTO(int filas, int creados, int nivelesImportados, List<FilaConError> errores) {
+        this(filas, creados, nivelesImportados, 0, 0, errores);
+    }
 
     /** {@code fila} es el número de fila del Excel (empezando en 2, porque la 1 es el encabezado). */
     public record FilaConError(int fila, String numeroControl, String mensaje) {

@@ -11,7 +11,8 @@ import mx.edu.itch.sigclem.pagos.domain.AutorizacionPago;
  * se cerró sin el pago y coordinación aún no asigna el nivel.
  */
 public record AlumnoActaDTO(String numeroControl, String nombreCompleto, Integer calificacionFinal,
-        String estatusPago, BigDecimal saldoPendiente, boolean avancePendiente) {
+        String estatusPago, BigDecimal saldoPendiente, boolean avancePendiente, Integer idNivelAcreditado,
+        String nivelAcreditado) {
 
     public static AlumnoActaDTO desde(Inscripcion inscripcion) {
         return desde(inscripcion, null);
@@ -22,6 +23,8 @@ public record AlumnoActaDTO(String numeroControl, String nombreCompleto, Integer
                 : inscripcion.getIdComprobante() != null ? "Liquidada" : "Sin cargo";
         return new AlumnoActaDTO(inscripcion.getAlumno().getNumeroControl(),
                 inscripcion.getAlumno().nombreCompleto(), inscripcion.getCalificacionFinal(),
-                estatus, cargo == null ? null : cargo.getSaldoPendiente(), inscripcion.isAvancePendiente());
+                estatus, cargo == null ? null : cargo.getSaldoPendiente(), inscripcion.isAvancePendiente(),
+                inscripcion.getNivelAcreditado() == null ? null : inscripcion.getNivelAcreditado().getId(),
+                inscripcion.getNivelAcreditado() == null ? null : inscripcion.getNivelAcreditado().getNombre());
     }
 }

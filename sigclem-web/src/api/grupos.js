@@ -20,8 +20,9 @@ export const guardarCalificaciones = (id, calificaciones) =>
 export const cerrarActa = (id) =>
   api.post(`/grupos/${encodeURIComponent(id)}/acta/cierre`).then((r) => r.data);
 /** Coordinación: cierra el acta con observación aunque haya cursos sin liquidar (devuelve el detalle del grupo). */
-export const cerrarActaCoordinacion = (id, observacion) =>
-  api.post(`/grupos/${encodeURIComponent(id)}/acta/cierre-coordinacion`, { observacion }).then((r) => r.data);
+export const cerrarActaCoordinacion = (id, observacion, nivelesAcreditados = []) =>
+  api.post(`/grupos/${encodeURIComponent(id)}/acta/cierre-coordinacion`, { observacion, nivelesAcreditados })
+    .then((r) => r.data);
 /** Coordinación: asigna el nivel que quedó pendiente por falta de pago al cerrar el acta. */
 export const asignarNivelPendiente = (id, numeroControl, observacion) =>
   api.post(`/grupos/${encodeURIComponent(id)}/alumnos/${encodeURIComponent(numeroControl)}/nivel`, { observacion })

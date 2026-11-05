@@ -163,6 +163,26 @@ class AlumnoServiceTest {
         assertEquals("Examen global", avance.get(1).getOrigen());
     }
 
+    @Test
+    void liberarIdiomaPorCursoIntensivoMarcaLosNivelesPendientesConEseOrigen() {
+        when(alumnoRepository.findConCarreraByNumeroControl("A12345678")).thenReturn(java.util.Optional.of(alumno));
+        var avance = new java.util.ArrayList<AvanceNivel>(List.of(
+                new AvanceNivel("A12345678", 1, EstatusAvance.ACREDITADO),
+                new AvanceNivel("A12345678", 2, EstatusAvance.HABILITADO),
+                new AvanceNivel("A12345678", 3, EstatusAvance.NO_PERMITIDO)));
+        when(avanceRepository.findByIdNumeroControl("A12345678")).thenReturn(avance);
+
+        var exp = service.liberarIdioma("A12345678", "Curso intensivo", "Pago y aprobación confirmados");
+
+        assertEquals("Curso intensivo", exp.formaLiberacion());
+        assertEquals("Idioma acreditado", exp.nivelActual());
+        assertEquals(EstatusAvance.ACREDITADO, avance.get(0).getEstatus());
+        assertEquals(EstatusAvance.EXENTO, avance.get(1).getEstatus());
+        assertEquals("Curso intensivo", avance.get(1).getOrigen());
+        assertEquals(EstatusAvance.EXENTO, avance.get(2).getEstatus());
+        assertEquals("Curso intensivo", avance.get(2).getOrigen());
+    }
+
     private static Nivel nivel(int numero, String nombre) {
         Nivel nivel = mock(Nivel.class);
         lenient().when(nivel.getId()).thenReturn(numero);

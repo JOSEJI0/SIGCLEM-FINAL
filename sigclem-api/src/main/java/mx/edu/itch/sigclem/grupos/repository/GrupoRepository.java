@@ -14,6 +14,10 @@ import mx.edu.itch.sigclem.grupos.domain.Grupo;
 
 public interface GrupoRepository extends JpaRepository<Grupo, Integer> {
 
+    @EntityGraph(attributePaths = { "nivel", "periodo", "modalidad", "aula", "facilitador", "horarios" })
+    @Query("select distinct g from Grupo g")
+    List<Grupo> findAllConDatosHistoricos();
+
     boolean existsByPeriodoIdAndNivelIdAndModalidadIdAndClave(
             Integer periodoId, Integer nivelId, Integer modalidadId, String clave);
 
@@ -26,6 +30,9 @@ public interface GrupoRepository extends JpaRepository<Grupo, Integer> {
     /** Oferta para el alumno: grupos de un nivel en periodos que aún no terminan. */
     @EntityGraph(attributePaths = { "nivel", "periodo", "modalidad", "aula", "facilitador" })
     List<Grupo> findByNivelIdAndPeriodoFechaFinGreaterThanEqual(Integer nivelId, java.time.LocalDate fecha);
+
+    @EntityGraph(attributePaths = { "nivel", "periodo", "modalidad", "aula", "facilitador" })
+    List<Grupo> findByIntensivoTrueAndPeriodoFechaFinGreaterThanEqual(java.time.LocalDate fecha);
 
     @EntityGraph(attributePaths = { "nivel", "periodo", "modalidad", "aula", "facilitador" })
     Optional<Grupo> findConDetallesById(Integer id);

@@ -66,8 +66,8 @@ export default function GruposFacilitador() {
 
   function pdf() {
     verDocumento({
-      titulo: `Acta de calificaciones · ${acta.grupo.nivel} ${acta.grupo.clave} · ${acta.grupo.periodo}`,
-      nombre: `acta-${acta.grupo.nivel.replace(/\s+/g, '-')}-${acta.grupo.clave}`,
+      titulo: `Acta de calificaciones · ${acta.grupo.intensivo ? 'Intensivo' : acta.grupo.nivel} ${acta.grupo.clave} · ${acta.grupo.periodo}`,
+      nombre: `acta-${(acta.grupo.intensivo ? 'intensivo' : acta.grupo.nivel).replace(/\s+/g, '-')}-${acta.grupo.clave}`,
       cargar: () => descargarActaPdf(acta.grupo.id),
     });
   }
@@ -163,7 +163,7 @@ export default function GruposFacilitador() {
                 type="button"
                 onClick={() => setParams({ grupo: String(grupo.id) })}
               >
-                <span className="flex items-center justify-between gap-2 font-semibold">{grupo.nivel} · {grupo.clave}<span className="text-xs font-normal">{grupo.estatusActa}</span></span>
+                <span className="flex items-center justify-between gap-2 font-semibold">{grupo.intensivo ? 'Intensivo' : grupo.nivel} · {grupo.clave}<span className="text-xs font-normal">{grupo.estatusActa}</span></span>
                 <span className="mt-1 block text-xs text-tenue">{grupo.modalidad} · {grupo.aula} · {grupo.alumnosInscritos}/{grupo.cupo} alumnos</span>
                 <span className="mt-1 block text-xs">{grupo.horarios.map((h) => `${DIAS[h.diaSemana - 1]} ${h.horaInicio.slice(0, 5)}–${h.horaFin.slice(0, 5)}`).join(' · ')}</span>
               </button>
@@ -172,7 +172,7 @@ export default function GruposFacilitador() {
         )}
       </Tarjeta>
 
-      <Tarjeta titulo={acta ? `Acta · ${acta.grupo.nivel} ${acta.grupo.clave}` : 'Acta de calificaciones'} icono={ClipboardCheck}>
+      <Tarjeta titulo={acta ? `Acta · ${acta.grupo.intensivo ? 'Intensivo' : acta.grupo.nivel} ${acta.grupo.clave}` : 'Acta de calificaciones'} icono={ClipboardCheck}>
         {!acta ? <p className="text-sm text-tenue">Selecciona un grupo para consultar su lista y capturar las calificaciones finales.</p>
           : <>
             {aviso && <Alerta tipo="ok" className="mb-3">{aviso}</Alerta>}
@@ -226,7 +226,9 @@ export default function GruposFacilitador() {
                 {periodoEditable && acta.grupo.estatusActa !== 'Cerrada' && (
                   <div className="mt-4 flex flex-wrap gap-2">
                     <Boton type="submit" disabled={guardando}>{guardando ? 'Guardando…' : 'Guardar calificaciones'}</Boton>
-                    {!confirmarCierre
+                    {acta.grupo.intensivo ? (
+                      <Alerta tipo="info">El cierre del acta Intensiva y la asignación del nivel de cada alumno corresponden a coordinación.</Alerta>
+                    ) : !confirmarCierre
                       ? <Boton variante="exito" type="button" disabled={guardando || !todasCapturadas || sinPago.length > 0} title={sinPago.length > 0 ? 'Hay alumnos sin pago liquidado' : undefined} onClick={() => setConfirmarCierre(true)}>Cerrar acta</Boton>
                       : <><span className="self-center text-xs text-tenue">Al cerrar se registra el avance de nivel de cada alumno y ya no podrás editar el acta.</span><Boton variante="peligro" type="button" disabled={guardando} onClick={cerrar}>Confirmar cierre</Boton><Boton variante="secundario" type="button" onClick={() => setConfirmarCierre(false)}>Cancelar</Boton></>}
                   </div>

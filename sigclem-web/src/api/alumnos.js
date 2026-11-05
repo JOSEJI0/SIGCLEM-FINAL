@@ -25,7 +25,7 @@ export const darDeBajaAlumno = (numeroControl, motivo) =>
   api.post(`/alumnos/${encodeURIComponent(numeroControl)}/baja`, { motivo }).then((r) => r.data);
 export const reactivarAlumno = (numeroControl) =>
   api.post(`/alumnos/${encodeURIComponent(numeroControl)}/reactivar`).then((r) => r.data);
-/** Libera la lengua extranjera por otra forma (Examen global, Lengua materna u Otra). */
+/** Libera la lengua extranjera (incluye curso intensivo; coordinación confirma pago y aprobación). */
 export const liberarIdioma = (numeroControl, forma, detalle) =>
   api.post(`/alumnos/${encodeURIComponent(numeroControl)}/liberacion`, { forma, detalle }).then((r) => r.data);
 /** Carga masiva de alumnos desde un archivo Excel. */
@@ -35,19 +35,19 @@ export const cargarAlumnosExcel = (archivo) => {
   return api.post('/alumnos/carga', datos, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data);
 };
 export const descargarPlantillaAlumnos = () =>
-  api.get('/alumnos/plantilla-excel', { responseType: 'blob' }).then((r) => r.data);
+  api.get('/alumnos/plantilla', { responseType: 'blob' }).then((r) => r.data);
 /**
  * CU-03: consulta completa del expediente del alumno con su avance reticular en los diez niveles de inglés.
  * Rol: Alumno (solo su propio expediente), Coordinador.
  */
 export const obtenerExpediente = (numeroControl) =>
-  api.get(`/alumnos/${encodeURIComponent(numeroControl)}/expediente`).then((r) => r.data);
+  api.get(`/alumnos/${encodeURIComponent(numeroControl)}`).then((r) => r.data);
 /**
  * Expediente integral (cambio 15): agrupa alumno, avance reticular, historial académico, cargos de pago,
  * exámenes y evaluaciones diagnósticas, constancias y registro de lengua materna en una sola consulta.
  */
 export const obtenerExpedienteIntegral = (numeroControl) =>
-  api.get(`/alumnos/${encodeURIComponent(numeroControl)}/expediente-integral`).then((r) => r.data);
+  api.get(`/alumnos/${encodeURIComponent(numeroControl)}/integral`).then((r) => r.data);
 /** El alumno actualiza el semestre que cursa. */
 export const actualizarMiSemestre = (semestre) =>
   api.put('/alumnos/yo/semestre', { semestre }).then((r) => r.data);

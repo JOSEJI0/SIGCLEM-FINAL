@@ -20,7 +20,7 @@ import mx.edu.itch.sigclem.grupos.dto.HorarioDTO;
 class ActaPdfServiceTest {
 
     private static GrupoDTO grupo(String estatus) {
-        return new GrupoDTO(1, "A", 2, 2, "Básico 2", "AGO-DIC 2026", 1, LocalDate.of(2026, 8, 10),
+        return new GrupoDTO(1, "A", false, 2, 2, "Básico 2", "AGO-DIC 2026", 1, LocalDate.of(2026, 8, 10),
                 LocalDate.of(2026, 12, 18), 1, "Entre semana", 3, "Aula 5", 4, "Samuel Isaí Villaseñor Díaz", 30, 2, 0,
                 estatus, null, null, null, List.of(new HorarioDTO(1, LocalTime.of(7, 0), LocalTime.of(9, 0)),
                         new HorarioDTO(3, LocalTime.of(7, 0), LocalTime.of(9, 0))));
@@ -29,8 +29,8 @@ class ActaPdfServiceTest {
     @Test
     void generaElActaCerradaConCalificacionesResumenYFirmas() throws Exception {
         var acta = new ActaDTO(grupo("Cerrada"), List.of(
-                new AlumnoActaDTO("22520187", "José de Jesús Tepetitlán Mancilla", 100, "Liquidada", null, false),
-                new AlumnoActaDTO("22520188", "Ana López Ruiz", 65, "Liquidada", null, false)));
+                new AlumnoActaDTO("22520187", "José de Jesús Tepetitlán Mancilla", 100, "Liquidada", null, false, null, null),
+                new AlumnoActaDTO("22520188", "Ana López Ruiz", 65, "Liquidada", null, false, null, null)));
 
         String texto = texto(new ActaPdfService().generar(acta, MembreteConstancia.porOmision()));
 
@@ -45,7 +45,8 @@ class ActaPdfServiceTest {
     void marcaComoPreliminarYPaginaUnGrupoGrande() throws Exception {
         List<AlumnoActaDTO> alumnos = new ArrayList<>();
         for (int i = 0; i < 45; i++) {
-            alumnos.add(new AlumnoActaDTO("2252" + String.format("%04d", i), "Alumno " + i, i % 3 == 0 ? null : 80, "Pendiente", null, false));
+            alumnos.add(new AlumnoActaDTO("2252" + String.format("%04d", i), "Alumno " + i, i % 3 == 0 ? null : 80,
+                    "Pendiente", null, false, null, null));
         }
 
         byte[] pdf = new ActaPdfService().generar(new ActaDTO(grupo("En captura"), alumnos), MembreteConstancia.porOmision());
@@ -70,7 +71,7 @@ class ActaPdfServiceTest {
     @Test
     void elHorarioLargoNoSeEncimaConElEstadoDelActa() throws Exception {
         var acta = new ActaDTO(grupo("En captura", conHorarios(1, 2, 3, 4, 5).horarios()), List.of(
-                new AlumnoActaDTO("22520001", "Ana López Hernández", 100, "Liquidada", null, false)));
+                new AlumnoActaDTO("22520001", "Ana López Hernández", 100, "Liquidada", null, false, null, null)));
 
         String texto = texto(new ActaPdfService().generar(acta, MembreteConstancia.porOmision()));
 
@@ -84,7 +85,7 @@ class ActaPdfServiceTest {
     }
 
     private static GrupoDTO grupo(String estatus, List<HorarioDTO> horarios) {
-        return new GrupoDTO(1, "C", 2, 2, "Básico 2", "DEMO 20261014", 1, LocalDate.of(2026, 8, 10),
+        return new GrupoDTO(1, "C", false, 2, 2, "Básico 2", "DEMO 20261014", 1, LocalDate.of(2026, 8, 10),
                 LocalDate.of(2026, 12, 18), 1, "Entre semana", 3, "Aula Demo 1", 4, "María Gómez Ruiz", 30, 1, 0,
                 estatus, null, null, null, horarios);
     }

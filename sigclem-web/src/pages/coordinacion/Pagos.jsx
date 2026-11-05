@@ -618,7 +618,7 @@ export default function Pagos({ soloLectura = false }) {
                       <select className={claseEntrada} id={`grupo-${comprobante.id}`} required value={idGrupo[comprobante.id] || ''} onChange={(e) => setIdGrupo((previos) => ({ ...previos, [comprobante.id]: e.target.value }))}>
                         <option value="">Selecciona un grupo compatible</option>
                         {gruposElegibles.map((grupo) => (
-                          <option key={grupo.id} value={grupo.id}>{grupo.clave} · {grupo.nivel} · {grupo.modalidad} · {grupo.alumnosInscritos}/{grupo.cupo}</option>
+                          <option key={grupo.id} value={grupo.id}>{grupo.clave} · {grupo.intensivo ? 'Intensivo' : grupo.nivel} · {grupo.modalidad} · {grupo.alumnosInscritos}/{grupo.cupo}</option>
                         ))}
                       </select>
                     </Campo>

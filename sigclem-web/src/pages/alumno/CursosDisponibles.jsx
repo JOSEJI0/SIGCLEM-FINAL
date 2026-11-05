@@ -57,7 +57,7 @@ export default function CursosDisponibles() {
   const eleccion = oferta?.grupos.find((g) => g.elegido);
   const sesiones = (oferta?.grupos || []).flatMap(({ grupo, elegido }) => grupo.horarios.map((h, i) => ({
     clave: `${grupo.id}-${i}`, dia: h.diaSemana, inicio: h.horaInicio, fin: h.horaFin,
-    titulo: `${grupo.nivel} ${grupo.clave}`, detalle: grupo.modalidad,
+    titulo: `${grupo.intensivo ? 'Intensivo' : grupo.nivel} ${grupo.clave}`, detalle: grupo.modalidad,
     color: colorNivel(elegido ? 2 : grupo.nivelNumero), atenuada: eleccion && !elegido,
   })));
 
@@ -71,7 +71,7 @@ export default function CursosDisponibles() {
           {oferta.inscripciones.map(({ grupo, montoCargo, saldoPendiente, estatusPago }) => (
             <div key={grupo.id} className="grid gap-4 md:grid-cols-[1fr_auto]">
               <div>
-                <div className="text-lg font-semibold">{grupo.nivel} · Grupo {grupo.clave}</div>
+                <div className="text-lg font-semibold">{grupo.intensivo ? 'Intensivo (Básico 1–Intermedio 5)' : grupo.nivel} · Grupo {grupo.clave}</div>
                 <div className="mb-2 text-[13px] text-tenue">
                   {grupo.periodo} · {grupo.modalidad} · {grupo.aula} · {grupo.facilitador}
                 </div>
@@ -122,7 +122,7 @@ export default function CursosDisponibles() {
                     className={`flex flex-col gap-3 rounded-xl border p-4 ${elegido ? 'border-marino ring-2 ring-marino/15' : 'border-linea'}`}>
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <div className="font-semibold">{grupo.nivel} · Grupo {grupo.clave}</div>
+                        <div className="font-semibold">{grupo.intensivo ? 'Intensivo (Básico 1–Intermedio 5)' : grupo.nivel} · Grupo {grupo.clave}</div>
                         <div className="text-xs text-tenue">{grupo.periodo} · {grupo.modalidad}</div>
                       </div>
                       {elegido && <Insignia estatus={estatusEleccion === 'Asignada' ? 'Asignada' : 'Pendiente'}>{estatusEleccion === 'Asignada' ? 'Asignado' : 'Tu elección'}</Insignia>}
@@ -143,7 +143,7 @@ export default function CursosDisponibles() {
                         )
                       ) : (
                         <Boton className="w-full" disabled={lleno || ocupado === grupo.id || Boolean(oferta.mensaje)}
-                          onClick={() => accion(grupo.id, elegirGrupo, `Elegiste ${grupo.nivel} grupo ${grupo.clave}. Coordinación confirmará tu lugar.`)}>
+                          onClick={() => accion(grupo.id, elegirGrupo, `Elegiste ${grupo.intensivo ? 'Intensivo' : grupo.nivel} grupo ${grupo.clave}. Coordinación confirmará tu lugar.`)}>
                           <Check className="h-4 w-4" /> {lleno ? 'Grupo lleno' : eleccion ? 'Cambiar a este horario' : 'Elegir este horario'}
                         </Boton>
                       )}

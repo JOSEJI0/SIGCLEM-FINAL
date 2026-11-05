@@ -12,7 +12,8 @@ public class HistorialAcademico {
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "alumno_id", nullable = false)
+    @JoinColumn(name = "alumno_id", referencedColumnName = "numero_control",
+    nullable = false)
     private Alumno alumno;
 
     private String nivel;
@@ -22,4 +23,7 @@ public class HistorialAcademico {
     private String horario;
     private String aula;
     private Double calificacion;
+
+    @jakarta.persistence.Column(name = "observacion_historica", length = 500)
+    private String observacionHistorica;
 }

@@ -29,6 +29,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import mx.edu.itch.sigclem.grupos.dto.ActaDTO;
 import mx.edu.itch.sigclem.grupos.dto.CalificacionesRequest;
+import mx.edu.itch.sigclem.grupos.dto.CerrarActaCoordinacionRequest;
 import mx.edu.itch.sigclem.grupos.dto.CrearGrupoRequest;
 import mx.edu.itch.sigclem.grupos.dto.GrupoDTO;
 import mx.edu.itch.sigclem.grupos.service.GrupoService;
@@ -81,10 +82,12 @@ public class GrupoController {
     @PreAuthorize("hasRole('COORDINADOR')")
     @Operation(summary = "Cerrar el acta desde coordinación con observación",
             description = "Rol: [Coordinador]. Se puede cerrar aunque haya cursos sin liquidar: a esos alumnos se les "
-                    + "registra la calificación y su nivel queda pendiente hasta asignarlo de forma individual.")
-    public DetalleGrupoDTO cerrarPorCoordinacion(@PathVariable Integer id, @Valid @RequestBody ObservacionRequest req,
+                    + "registra la calificación y su nivel queda pendiente hasta asignarlo de forma individual. Para "
+                    + "grupos Intensivos se debe indicar el nivel acreditado por cada alumno.")
+    public DetalleGrupoDTO cerrarPorCoordinacion(@PathVariable Integer id,
+            @Valid @RequestBody CerrarActaCoordinacionRequest req,
             Authentication authentication) {
-        grupoService.cerrarActaPorCoordinacion(id, req.observacion(), authentication);
+        grupoService.cerrarActaPorCoordinacion(id, req.observacion(), req.nivelesAcreditados(), authentication);
         auditoria.registrar(AccionAuditoria.ACTA_CERRADA_COORDINACION, RegistroAuditoria.OK,
                 "Grupo " + id + ". " + req.observacion());
         return inscripcionService.detalle(id);

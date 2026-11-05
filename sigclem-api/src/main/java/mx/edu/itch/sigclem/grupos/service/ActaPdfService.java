@@ -94,7 +94,9 @@ public class ActaPdfService {
 
         float y = 690;
         String horario = horarioCompacto(g);
-        dato(c, "Nivel:", g.nivel() + " · Grupo " + g.clave(), MARGEN, y);
+        dato(c, g.intensivo() ? "Curso:" : "Nivel:",
+                (g.intensivo() ? "Intensivo (Básico 1 a Intermedio 5)" : g.nivel()) + " · Grupo " + g.clave(),
+                MARGEN, y);
         dato(c, "Periodo:", g.periodo(), 320, y);
         y -= 14;
         dato(c, "Facilitador(a):", g.facilitador(), MARGEN, y);
@@ -182,7 +184,8 @@ public class ActaPdfService {
         String resultado = cal == null ? "Sin captura"
                 : a.avancePendiente() ? "Nivel pendiente*"
                 : cal >= APROBATORIA ? "Acreditado" : "No acreditado";
-        PdfConstancia.texto(c, cerrada || cal != null ? resultado : "Sin captura", NORMAL, 8, X[5], y);
+        String nivel = a.nivelAcreditado() == null ? "" : " · " + a.nivelAcreditado();
+        PdfConstancia.texto(c, (cerrada || cal != null ? resultado : "Sin captura") + nivel, NORMAL, 8, X[5], y);
         c.setStrokingColor(0.85f, 0.87f, 0.90f);
         c.setLineWidth(0.4f);
         c.moveTo(MARGEN - 4, y - 5);

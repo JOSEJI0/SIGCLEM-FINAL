@@ -13,6 +13,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import mx.edu.itch.sigclem.alumnos.domain.Alumno;
+import mx.edu.itch.sigclem.catalogos.domain.Nivel;
 
 @Entity
 @Table(name = "inscripcion")
@@ -47,6 +48,11 @@ public class Inscripcion {
 
     @Column(name = "calificacion_final")
     private Integer calificacionFinal;
+
+    /** Nivel seleccionado por coordinación al cerrar el acta de un curso Intensivo. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "id_nivel_acreditado")
+    private Nivel nivelAcreditado;
 
     /**
      * El acta se cerró sin que el alumno liquidara el curso: la calificación queda registrada, pero el nivel no se

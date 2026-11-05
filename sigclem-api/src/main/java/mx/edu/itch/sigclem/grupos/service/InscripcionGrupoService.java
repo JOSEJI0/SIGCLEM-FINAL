@@ -58,6 +58,7 @@ import mx.edu.itch.sigclem.seguridad.repository.UsuarioRepository;
 public class InscripcionGrupoService {
 
     private static final String CURSO = "Curso de nivel";
+    private static final String CURSO_INTENSIVO = "Curso intensivo";
     /** Estatus de avance desde los que se puede inscribir un nivel (habilitado o repetir uno reprobado). */
     private static final Set<EstatusAvance> PUEDE_CURSAR = Set.of(EstatusAvance.HABILITADO, EstatusAvance.REPROBADO);
     private static final Set<String> CARGO_ABIERTO = Set.of("Pendiente", "Parcial");
@@ -101,7 +102,7 @@ public class InscripcionGrupoService {
                 interesados, observaciones);
     }
 
-    /** Asigna al alumno al grupo y genera automáticamente su cargo del curso con la tarifa vigente del nivel. */
+    /** Asigna al alumno y genera el cargo con la tarifa del nivel o el concepto general de Curso intensivo. */
     @Transactional
     public DetalleGrupoDTO asignar(Integer idGrupo, String numeroControlTexto, String usuarioCoordinador) {
         String nc = numeroControlTexto.trim().toUpperCase();
@@ -128,12 +129,13 @@ public class InscripcionGrupoService {
         if (inscripcionRepository.countByGrupoId(idGrupo) >= grupo.getCupo()) {
             throw new ReglaNegocioException("INS-005", "El grupo ya alcanzó su cupo de " + grupo.getCupo() + " alumnos.");
         }
-        AvanceNivel avance = verificarNivelPermitido(nc, grupo.getNivel());
+        AvanceNivel avance = grupo.isIntensivo() ? null : verificarNivelPermitido(nc, grupo.getNivel());
 
-        // Todos los niveles pagan lo mismo: se usa el monto general del concepto (o, si existiera, el del nivel).
-        TarifaPago tarifa = tarifaRepository.findFirstByConceptoAndNivelIsNullAndActivaTrue(CURSO)
-                .or(() -> tarifaRepository.findFirstByConceptoAndNivelIdAndActivaTrue(CURSO, grupo.getNivel().getId()))
-                .orElseThrow(() -> new ReglaNegocioException("INS-007", "El concepto «" + CURSO
+        String concepto = grupo.isIntensivo() ? CURSO_INTENSIVO : CURSO;
+        TarifaPago tarifa = tarifaRepository.findFirstByConceptoAndNivelIsNullAndActivaTrue(concepto)
+                .or(() -> grupo.isIntensivo() ? java.util.Optional.empty()
+                        : tarifaRepository.findFirstByConceptoAndNivelIdAndActivaTrue(CURSO, grupo.getNivel().getId()))
+                .orElseThrow(() -> new ReglaNegocioException("INS-007", "El concepto «" + concepto
                         + "» no tiene un monto activo. Actívalo o asígnale un monto en Pagos."));
         Usuario coordinador = usuarioRepository.findByNombreUsuario(usuarioCoordinador)
                 .orElseThrow(() -> new RecursoNoEncontradoException("INS-008", "No se encontró la cuenta de coordinación."));
@@ -141,13 +143,14 @@ public class InscripcionGrupoService {
         // Si coordinación ya había emitido un cargo abierto del mismo nivel y periodo, se reutiliza.
         AutorizacionPago cargo = autorizacionRepository
                 .findFirstByAlumnoNumeroControlAndConceptoAndNivelIdAndPeriodoIdAndEstatusInOrderByFechaEmisionDescIdDesc(
-                        nc, CURSO, grupo.getNivel().getId(), grupo.getPeriodo().getId(), CARGO_ABIERTO)
+                        nc, concepto, grupo.isIntensivo() ? null : grupo.getNivel().getId(),
+                        grupo.getPeriodo().getId(), CARGO_ABIERTO)
                 .filter(a -> inscripcionRepository.findByIdAutorizacion(a.getId()).isEmpty())
                 .orElseGet(() -> {
                     AutorizacionPago nuevo = new AutorizacionPago();
                     nuevo.setAlumno(alumno);
-                    nuevo.setConcepto(CURSO);
-                    nuevo.setNivel(grupo.getNivel());
+                    nuevo.setConcepto(concepto);
+                    nuevo.setNivel(grupo.isIntensivo() ? null : grupo.getNivel());
                     nuevo.setPeriodo(grupo.getPeriodo());
                     nuevo.setMontoEsperado(tarifa.getMonto());
                     nuevo.setSaldoPendiente(tarifa.getMonto());
@@ -163,10 +166,12 @@ public class InscripcionGrupoService {
         inscripcion.setIdAutorizacion(cargo.getId());
         inscripcionRepository.save(inscripcion);
 
-        avance.setEstatus(EstatusAvance.CURSANDO);
-        avance.setOrigen("Curso");
-        avance.setFechaRegistro(LocalDate.now());
-        avanceRepository.save(avance);
+        if (avance != null) {
+            avance.setEstatus(EstatusAvance.CURSANDO);
+            avance.setOrigen("Curso");
+            avance.setFechaRegistro(LocalDate.now());
+            avanceRepository.save(avance);
+        }
 
         PreferenciaGrupo preferencia = preferenciaRepository
                 .findByAlumnoNumeroControlAndPeriodoId(nc, grupo.getPeriodo().getId())
@@ -182,8 +187,9 @@ public class InscripcionGrupoService {
         preferenciaRepository.save(preferencia);
 
         notificar(alumno.getUsuario(), coordinador, "Asignación a grupo",
-                "Quedaste asignado al grupo " + grupo.getNivel().getNombre() + " " + grupo.getClave() + " ("
-                        + grupo.getPeriodo().getNombre() + "). Tu papeleta de pago por " + cargo.getMontoEsperado()
+                "Quedaste asignado al grupo " + (grupo.isIntensivo() ? "Intensivo " : grupo.getNivel().getNombre() + " ")
+                        + grupo.getClave() + " (" + grupo.getPeriodo().getNombre()
+                        + "). Tu papeleta de pago por " + cargo.getMontoEsperado()
                         + " MXN ya está disponible en Pagos.");
         return detalle(idGrupo);
     }
@@ -201,13 +207,15 @@ public class InscripcionGrupoService {
         if (idCargo != null && !comprobanteRepository.existsByAutorizacionId(idCargo)) {
             autorizacionRepository.deleteById(idCargo);
         }
-        avanceRepository.findByIdNumeroControlAndIdIdNivel(numeroControl, grupo.getNivel().getId())
-                .filter(a -> a.getEstatus() == EstatusAvance.CURSANDO)
-                .ifPresent(a -> {
-                    a.setEstatus(EstatusAvance.HABILITADO);
-                    a.setFechaRegistro(LocalDate.now());
-                    avanceRepository.save(a);
-                });
+        if (!grupo.isIntensivo()) {
+            avanceRepository.findByIdNumeroControlAndIdIdNivel(numeroControl, grupo.getNivel().getId())
+                    .filter(a -> a.getEstatus() == EstatusAvance.CURSANDO)
+                    .ifPresent(a -> {
+                        a.setEstatus(EstatusAvance.HABILITADO);
+                        a.setFechaRegistro(LocalDate.now());
+                        avanceRepository.save(a);
+                    });
+        }
         preferenciaRepository.findByAlumnoNumeroControlAndPeriodoId(numeroControl, grupo.getPeriodo().getId())
                 .ifPresent(p -> {
                     p.setEstatus(PreferenciaGrupo.PENDIENTE);
@@ -248,13 +256,18 @@ public class InscripcionGrupoService {
         }
         AvanceNivel avanceSiguiente = avance.get(siguiente.getId());
         String mensaje = null;
-        if (avanceSiguiente != null && avanceSiguiente.getEstatus() == EstatusAvance.CURSANDO) {
+        if (vigentes.stream().anyMatch(i -> i.getGrupo().isIntensivo())) {
+            mensaje = "Ya estás asignado a un curso Intensivo en este periodo.";
+        } else if (avanceSiguiente != null && avanceSiguiente.getEstatus() == EstatusAvance.CURSANDO) {
             mensaje = "Actualmente cursas " + siguiente.getNombre()
                     + ". Podrás elegir el siguiente nivel cuando se cierre el acta del grupo.";
         }
 
-        List<Grupo> grupos = grupoRepository.findByNivelIdAndPeriodoFechaFinGreaterThanEqual(siguiente.getId(), hoy)
-                .stream().filter(g -> !"Cerrada".equals(g.getEstatusActa()))
+        List<Grupo> grupos = java.util.stream.Stream.concat(
+                grupoRepository.findByNivelIdAndPeriodoFechaFinGreaterThanEqual(siguiente.getId(), hoy).stream(),
+                grupoRepository.findByIntensivoTrueAndPeriodoFechaFinGreaterThanEqual(hoy).stream())
+                .filter(g -> !"Cerrada".equals(g.getEstatusActa()))
+                .distinct()
                 .sorted(Comparator.comparing((Grupo g) -> g.getPeriodo().getFechaInicio()).thenComparing(Grupo::getClave))
                 .toList();
         Map<Integer, PreferenciaGrupo> preferenciaPorGrupo = grupos.isEmpty() ? Map.of()
@@ -270,7 +283,7 @@ public class InscripcionGrupoService {
         return new OfertaDTO(siguiente.getNumero(), siguiente.getNombre(), mensaje, ofertados, asignaciones);
     }
 
-    /** El alumno elige (o cambia) el grupo de su preferencia para el periodo; solo de su siguiente nivel. */
+    /** El alumno elige (o cambia) el grupo de su preferencia para el periodo. */
     @Transactional
     public OfertaDTO elegir(Integer idGrupo, String numeroControl) {
         Grupo grupo = grupoRepository.findConDetallesById(idGrupo)
@@ -279,7 +292,16 @@ public class InscripcionGrupoService {
         if (grupo.getPeriodo().getFechaFin().isBefore(LocalDate.now())) {
             throw new ReglaNegocioException("INS-001", "El periodo del grupo ya concluyó.");
         }
-        verificarNivelPermitido(numeroControl, grupo.getNivel());
+        if (grupo.isIntensivo()) {
+            boolean tieneNivelPendiente = nivelRepository.findAllByOrderByNumeroAsc().stream()
+                    .map(n -> avanceRepository.findByIdNumeroControlAndIdIdNivel(numeroControl, n.getId()).orElse(null))
+                    .anyMatch(a -> a == null || !a.getEstatus().cubreNivel());
+            if (!tieneNivelPendiente) {
+                throw new ReglaNegocioException("INS-006", "Ya cubriste los diez niveles de inglés.");
+            }
+        } else {
+            verificarNivelPermitido(numeroControl, grupo.getNivel());
+        }
         Alumno alumno = alumnoRepository.findById(numeroControl)
                 .orElseThrow(() -> new RecursoNoEncontradoException("INS-002", "No existe el alumno."));
         PreferenciaGrupo preferencia = preferenciaRepository

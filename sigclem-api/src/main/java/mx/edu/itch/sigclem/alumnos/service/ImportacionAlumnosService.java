@@ -64,6 +64,7 @@ public class ImportacionAlumnosService {
     // --- NUEVAS DEPENDENCIAS INYECTADAS ---
     private final AlumnoRepository alumnoRepository;
     private final HistorialAcademicoRepository historialRepository;
+    private final ImportacionHistoricaService historicoService;
 
     @Transactional
     public ResultadoCargaDTO importar(MultipartFile archivo) {
@@ -84,6 +85,9 @@ public class ImportacionAlumnosService {
         List<FilaConError> errores = new ArrayList<>();
 
         try (InputStream entrada = archivo.getInputStream(); Workbook libro = new XSSFWorkbook(entrada)) {
+            if (libro.getSheet("Grupos") != null && libro.getSheet("Inscripciones") != null) {
+                return historicoService.importar(libro);
+            }
             Sheet hoja = libro.getSheetAt(0); // SOLO LEER LA HOJA 1 "General"
             
             for (int f = 1; f <= hoja.getLastRowNum(); f++) {
@@ -125,9 +129,6 @@ public class ImportacionAlumnosService {
                     // 1. Buscar o crear al Alumno
                     Alumno alumno = procesarAlumno(fila, formato, carreras, numeroControl, nombre);
 
-                    // 2. Borrar historial previo (por si se vuelve a subir el Excel y se actualiza)
-                    historialRepository.deleteByAlumnoId(alumno.getNumeroControl());
-
                     // 3. Iterar sobre los 11 niveles
                     for (int i = 0; i < NIVELES.length; i++) {
                         int colBase = COL_INICIO_NIVELES + (i * COLUMNAS_POR_NIVEL);
@@ -137,7 +138,10 @@ public class ImportacionAlumnosService {
                         // SI EL PERIODO ESTÁ VACÍO, EL ALUMNO NO CURSÓ ESE NIVEL. SE SALTA.
                         if (periodo.isEmpty()) continue;
 
-                        HistorialAcademico historial = new HistorialAcademico();
+                        List<HistorialAcademico> encontrados = historialRepository.buscarPorClaveHistorica(
+                                alumno.getNumeroControl(), NIVELES[i], periodo, obtenerTexto(fila, colBase + 3));
+                        HistorialAcademico historial = encontrados.isEmpty()
+                                ? new HistorialAcademico() : encontrados.getFirst();
                         historial.setAlumno(alumno);
                         historial.setNivel(NIVELES[i]);
                         historial.setPeriodo(periodo);
@@ -220,10 +224,7 @@ public class ImportacionAlumnosService {
     private String obtenerTexto(Row row, int colIndex) {
         Cell cell = row.getCell(colIndex);
         if (cell == null) return "";
-        if (cell.getCellType() == CellType.NUMERIC) {
-            return String.valueOf((long) cell.getNumericCellValue()); // Evita decimales en No. Control
-        }
-        return cell.getStringCellValue().trim();
+        return new DataFormatter(new Locale("es", "MX")).formatCellValue(cell).trim();
     }
 
     private Double limpiarCalificacion(String raw) {
@@ -301,31 +302,7 @@ public class ImportacionAlumnosService {
     private static String celda(Row fila, int columna, DataFormatter formato) { ... }
     */
 
-    /** Genera la plantilla de Excel (Mantenemos la tuya original por ahora). */
     public byte[] plantilla() {
-        try (Workbook libro = new XSSFWorkbook(); ByteArrayOutputStream salida = new ByteArrayOutputStream()) {
-            Sheet hoja = libro.createSheet("Alumnos");
-            Row encabezado = hoja.createRow(0);
-            var negrita = libro.createFont();
-            negrita.setBold(true);
-            var estilo = libro.createCellStyle();
-            estilo.setFont(negrita);
-            for (int i = 0; i < ENCABEZADOS.length; i++) {
-                Cell c = encabezado.createCell(i);
-                c.setCellValue(ENCABEZADOS[i]);
-                c.setCellStyle(estilo);
-                hoja.setColumnWidth(i, 6000);
-            }
-            String[] ejemplo = { "22520001", "Ana", "López", "García", "M", "Ingeniería en Sistemas Computacionales",
-                    "3", "ana@example.edu.mx", "No" };
-            Row fila = hoja.createRow(1);
-            for (int i = 0; i < ejemplo.length; i++) {
-                fila.createCell(i).setCellValue(ejemplo[i]);
-            }
-            libro.write(salida);
-            return salida.toByteArray();
-        } catch (IOException e) {
-            throw new UncheckedIOException("No se pudo generar la plantilla de Excel.", e);
-        }
+        return historicoService.plantilla();
     }
 }

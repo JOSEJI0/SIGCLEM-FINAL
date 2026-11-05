@@ -51,7 +51,7 @@ export default function PanelFacilitador() {
 
   const sesiones = useMemo(() => (grupos || []).flatMap((g) => g.horarios.map((h, i) => ({
     clave: `${g.id}-${i}`, dia: h.diaSemana, inicio: h.horaInicio, fin: h.horaFin,
-    titulo: `${g.nivel} · ${g.clave}`, detalle: `${g.aula} · ${g.alumnosInscritos} alumnos`, color: colorNivel(g.nivelNumero),
+    titulo: `${g.intensivo ? 'Intensivo' : g.nivel} · ${g.clave}`, detalle: `${g.aula} · ${g.alumnosInscritos} alumnos`, color: colorNivel(g.nivelNumero),
   }))), [grupos]);
 
   if (grupos === null) return <Cargando />;
@@ -96,7 +96,7 @@ export default function PanelFacilitador() {
                 return (
                   <li key={g.id} className="rounded-lg border border-linea p-3">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-semibold">{g.nivel} · {g.clave}</span>
+                      <span className="font-semibold">{g.intensivo ? 'Intensivo' : g.nivel} · {g.clave}</span>
                       <Insignia tono={cerrada ? 'ok' : g.estatusActa === 'En captura' ? 'info' : 'aviso'}>{g.estatusActa}</Insignia>
                     </div>
                     <p className="mt-1 text-xs text-tenue">{textoHorario(g.horarios)} · {g.aula}</p>

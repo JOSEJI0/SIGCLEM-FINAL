@@ -73,7 +73,7 @@ export default function GruposSupervision() {
             <tbody>
               {grupos.map((grupo) => (
                 <tr className="border-b border-linea align-top last:border-0" key={grupo.id}>
-                  <td className="px-2 py-3 font-medium">Nivel {grupo.nivelNumero} · {grupo.clave}</td>
+                  <td className="px-2 py-3 font-medium">{grupo.intensivo ? 'Intensivo (10 niveles)' : `Nivel ${grupo.nivelNumero}`} · {grupo.clave}</td>
                   <td className="px-2 py-3">{grupo.periodo}</td>
                   <td className="px-2 py-3">{grupo.facilitador}</td>
                   <td className="px-2 py-3">{grupo.modalidad}<br /><span className="text-xs text-tenue">{grupo.aula}</span></td>
@@ -125,7 +125,7 @@ function AlumnosGrupo({ grupo, onCerrar }) {
   }, [grupo.id]);
 
   return (
-    <Modal titulo={`${grupo.nivel} · Grupo ${grupo.clave}`} onCerrar={onCerrar} ancho="max-w-2xl">
+    <Modal titulo={`${grupo.intensivo ? 'Intensivo' : grupo.nivel} · Grupo ${grupo.clave}`} onCerrar={onCerrar} ancho="max-w-2xl">
       <p className="mb-4 text-sm text-tenue">
         {grupo.periodo} · {grupo.facilitador} · {inscritos.length} alumnos inscritos
       </p>

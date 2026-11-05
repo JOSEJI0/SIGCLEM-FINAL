@@ -78,9 +78,17 @@ export default function Alumnos() {
     cargar(criterio, 0);
   }
 
-  const cambiarFiltro = (campo) => (evento) => setBusqueda({
-    ...busqueda, [campo]: campo === 'numeroControl' ? evento.target.value.toUpperCase() : evento.target.value,
-  });
+  const cambiarFiltro = (campo) => (evento) => {
+    const val = evento.target.value;
+    if (campo === 'nivel' && val.includes(':')) {
+      const [n, f] = val.split(':');
+      setBusqueda({ ...busqueda, nivel: n, formaLiberacion: f });
+      return;
+    }
+    setBusqueda({
+      ...busqueda, [campo]: campo === 'numeroControl' ? val.toUpperCase() : val,
+    });
+  };
   const hayFiltros = Object.values(filtro).some((v) => v !== '');
 
   const recargar = (mensaje) => {
@@ -92,7 +100,7 @@ export default function Alumnos() {
   return (
     <div className="grid gap-[18px]">
       <Tarjeta titulo="Buscar alumnos" icono={Search}>
-        <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1.2fr_0.9fr_1.2fr_0.7fr_1fr_0.8fr_auto] lg:items-end" onSubmit={buscar}>
+        <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:items-end" onSubmit={buscar}>
           <Campo etiqueta="Carrera" id="filtroCarrera">
             <select id="filtroCarrera" className={claseEntrada} value={busqueda.idCarrera} onChange={cambiarFiltro('idCarrera')}>
               <option value="">Todas</option>
@@ -117,7 +125,11 @@ export default function Alumnos() {
             <select id="filtroNivel" className={claseEntrada} value={busqueda.nivel} onChange={cambiarFiltro('nivel')}>
               <option value="">Todos</option>
               {niveles.map((n) => <option key={n.id} value={n.numero}>{n.numero}. {n.nombre}</option>)}
-              <option value="0">Idioma acreditado</option>
+              <option value="0">Idioma acreditado (todos)</option>
+              <option value="0:Examen global">Idioma acreditado · Examen global</option>
+              <option value="0:Curso intensivo">Idioma acreditado · Curso intensivo</option>
+              <option value="0:Lengua materna">Idioma acreditado · Lengua materna</option>
+              <option value="0:Curso">Idioma acreditado · Cursos concluidos</option>
             </select>
           </Campo>
           <Campo etiqueta="Estatus" id="filtroEstatus">
@@ -132,7 +144,7 @@ export default function Alumnos() {
               placeholder="Ej. Examen global" value={busqueda.formaLiberacion}
               onChange={cambiarFiltro('formaLiberacion')} />
             <datalist id="formas-liberacion">
-              {['Curso', 'Examen de colocación', 'Examen de cuatro habilidades', 'Examen global', 'Lengua materna']
+              {['Curso', 'Examen de colocación', 'Examen de cuatro habilidades', 'Examen global', 'Curso intensivo', 'Lengua materna']
                 .map((f) => <option key={f} value={f} />)}
             </datalist>
           </Campo>
@@ -201,7 +213,23 @@ export default function Alumnos() {
                           {fechaCorta(alumno.fechaActualizacionSemestre) ? `Act. ${fechaCorta(alumno.fechaActualizacionSemestre)}` : 'Sin confirmar'}
                         </div>
                       </td>
-                      <td className="px-2 py-3 font-medium">{alumno.nivelActual}</td>
+                      <td className="px-2 py-3 font-medium">
+                        {alumno.numeroNivelActual === 0 ? (
+                          <>
+                            <span className="font-semibold text-ok">Idioma acreditado</span>
+                            <div className="text-[11.5px] font-medium text-marino">
+                              {alumno.formaLiberacion ? `Liberado por: ${alumno.formaLiberacion}` : 'Acreditado'}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            {alumno.nivelActual}
+                            {alumno.formaLiberacion && (
+                              <div className="text-[11px] font-normal text-tenue">{alumno.formaLiberacion}</div>
+                            )}
+                          </>
+                        )}
+                      </td>
                       <td className="px-2 py-3">
                         <Insignia estatus={alumno.estatus === 'Baja' ? 'Rechazado' : 'Validado'}>{alumno.estatus}</Insignia>
                       </td>
@@ -267,7 +295,11 @@ export default function Alumnos() {
       {modal?.tipo === 'importar' && (
         <ModalImportar 
           onCerrar={() => setModal(null)} 
-          onImportado={(r) => recargar(`✅ Importación exitosa: ${r.creados} alumnos procesados y ${r.nivelesImportados} niveles históricos guardados.`)} 
+          onImportado={(r) => recargar(
+            `Importación: ${r.creados} alumnos nuevos, ${r.gruposImportados ?? 0} grupos y ` +
+            `${r.inscripcionesImportadas ?? r.nivelesImportados} inscripciones; ` +
+            `${r.nivelesImportados} registros informativos.`
+          )}
         />
       )}
       {modal?.tipo === 'baja' && (
@@ -371,7 +403,7 @@ function ModalImportar({ onCerrar, onImportado }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'plantilla-alumnos.xlsx';
+      a.download = 'plantilla-historico-sigclem.xlsx';
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) { setError(mensajeError(e)); }
@@ -395,7 +427,9 @@ function ModalImportar({ onCerrar, onImportado }) {
   return (
     <Modal titulo="Importar alumnos desde Excel" onCerrar={onCerrar} ancho="max-w-xl">
       <p className="text-[13px]">
-        Sube un archivo <b>.xlsx</b> con el concentrado histórico. Asegúrate de que el archivo contenga la hoja "General".
+        Descarga el histórico actual de grupos cerrados o importa la plantilla anterior y el concentrado "General".
+        El formato nuevo usa las hojas Alumnos, Grupos, Inscripciones, Horarios e Historial_Informativo;
+        no genera cargos ni comprobantes.
       </p>
       <Boton variante="secundario" type="button" className="mt-3" onClick={plantilla}>
         <Download className="h-4 w-4" /> Descargar plantilla
@@ -410,15 +444,17 @@ function ModalImportar({ onCerrar, onImportado }) {
           <Alerta tipo={resultado.errores.length ? 'aviso' : 'ok'}>
             <b>Resumen de importación:</b><br/>
             - Filas procesadas: {resultado.filas}<br/>
-            - Alumnos creados/actualizados: {resultado.creados}<br/>
-            - Niveles históricos guardados: {resultado.nivelesImportados}
+            - Alumnos nuevos: {resultado.creados}<br/>
+            - Grupos históricos procesados: {resultado.gruposImportados ?? 0}<br/>
+            - Inscripciones históricas procesadas: {resultado.inscripcionesImportadas ?? resultado.nivelesImportados}
+            <br/>- Registros informativos: {resultado.nivelesImportados}
             {resultado.errores.length > 0 && <><br/><b>{resultado.errores.length} fila(s) con error:</b></>}
           </Alerta>
           {resultado.errores.length > 0 && (
             <ul className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-linea text-xs">
               {resultado.errores.map((x) => (
                 <li key={x.fila} className="border-b border-linea px-3 py-1.5 last:border-0">
-                  <b>Fila {x.fila}</b>{x.numeroControl ? ` (${x.numeroControl})` : ''}: {x.motivo}
+                  <b>Fila {x.fila}</b>{x.numeroControl ? ` (${x.numeroControl})` : ''}: {x.mensaje ?? x.motivo}
                 </li>
               ))}
             </ul>
@@ -513,6 +549,7 @@ function ModalLiberar({ alumno, onCerrar, onLiberado }) {
       <Campo etiqueta="Forma de liberación" id="forma" className="mt-3">
         <select id="forma" className={claseEntrada} value={forma} onChange={(e) => setForma(e.target.value)}>
           <option value="Examen global">Examen global (aprobado)</option>
+          <option value="Curso intensivo">Curso intensivo (10 niveles · $8,000)</option>
           <option value="Lengua materna">Lengua materna (documento validado)</option>
           <option value="Otra">Otra (escribir cuál)</option>
         </select>
@@ -527,6 +564,12 @@ function ModalLiberar({ alumno, onCerrar, onLiberado }) {
 
       {forma === 'Examen global' && (
         <Alerta tipo="info" className="mt-2">Confirma que el alumno pagó el examen global y lo aprobó.</Alerta>
+      )}
+      {forma === 'Curso intensivo' && (
+        <Alerta tipo="aviso" className="mt-2">
+          Este curso cubre los diez niveles. Antes de liberar, emite y valida el cargo de $8,000 en Pagos y confirma
+          que el alumno aprobó el curso. Esta confirmación no genera un cargo automáticamente.
+        </Alerta>
       )}
       {forma === 'Lengua materna' && (
         <Alerta tipo="info" className="mt-2">Confirma que validaste el documento oficial de lengua materna.</Alerta>

@@ -15,6 +15,7 @@ public record CrearGrupoRequest(
         @NotBlank @Size(max = 2) @Pattern(regexp = "[A-Z]{1,2}", message = "La clave debe contener una o dos letras mayúsculas")
         String clave,
         @NotNull Integer idNivel,
+        boolean intensivo,
         @NotNull Integer idPeriodo,
         @NotNull Integer idModalidad,
         @NotNull Integer idFacilitador,

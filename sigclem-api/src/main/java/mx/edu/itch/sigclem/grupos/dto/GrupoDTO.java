@@ -6,12 +6,14 @@ import java.util.List;
 import mx.edu.itch.sigclem.grupos.domain.Grupo;
 
 /**
- * {@code interesados}: alumnos que eligieron este grupo en la encuesta y aún no están asignados.
+ * {@code intensivo}: curso virtual que cubre la ruta de diez niveles y acredita el nivel individual elegido por
+ * coordinación al cerrar el acta. {@code interesados}: alumnos que eligieron este grupo en la encuesta y aún no están asignados.
  * {@code cerradaPor} y {@code observacionCierre}: quién cerró el acta y, si fue coordinación, por qué.
  */
 public record GrupoDTO(
         Integer id,
         String clave,
+        boolean intensivo,
         Integer idNivel,
         Integer nivelNumero,
         String nivel,
@@ -39,7 +41,7 @@ public record GrupoDTO(
     }
 
     public static GrupoDTO desde(Grupo grupo, long alumnosInscritos, long interesados) {
-        return new GrupoDTO(grupo.getId(), grupo.getClave(), grupo.getNivel().getId(), grupo.getNivel().getNumero(),
+        return new GrupoDTO(grupo.getId(), grupo.getClave(), grupo.isIntensivo(), grupo.getNivel().getId(), grupo.getNivel().getNumero(),
                 grupo.getNivel().getNombre(), grupo.getPeriodo().getNombre(), grupo.getPeriodo().getId(),
                 grupo.getPeriodo().getFechaInicio(), grupo.getPeriodo().getFechaFin(),
                 grupo.getModalidad().getId(), grupo.getModalidad().getNombre(),

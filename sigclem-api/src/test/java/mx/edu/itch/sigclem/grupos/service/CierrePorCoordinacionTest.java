@@ -125,41 +125,40 @@ class CierrePorCoordinacionTest {
     }
 
     @Test
-    void cierreIntensivoActualizaElNivelQueCoordinacionEligioParaElAlumno() {
+    void cierreIntensivoAprobadoAcreditaLosDiezNiveles() {
         Grupo grupo = grupoAbierto();
         when(grupo.isIntensivo()).thenReturn(true);
-        Nivel nivelElegido = mock(Nivel.class);
-        when(nivelElegido.getId()).thenReturn(6);
-        when(nivelElegido.getNumero()).thenReturn(6);
-        when(nivelElegido.getNombre()).thenReturn("Intermedio 1");
         Inscripcion alumno = inscripcion(grupo, "22520003", 92, 8);
-        AvanceNivel avance = new AvanceNivel("22520003", 6, EstatusAvance.CURSANDO);
+        List<AvanceNivel> avance = new java.util.ArrayList<>();
+        avance.add(new AvanceNivel("22520003", 1, EstatusAvance.ACREDITADO));
+        avance.add(new AvanceNivel("22520003", 2, EstatusAvance.CURSANDO));
+        for (int nivel = 3; nivel <= 10; nivel++) {
+            avance.add(new AvanceNivel("22520003", nivel, EstatusAvance.NO_PERMITIDO));
+        }
+        avance.get(0).setOrigen("Curso");
         when(inscripcionRepository.findByGrupoId(4)).thenReturn(List.of(alumno));
-        when(nivelRepository.findAllByOrderByNumeroAsc()).thenReturn(List.of(nivelElegido));
         when(autorizacionRepository.findByIdIn(anyList())).thenReturn(List.of(cargo(8, "Liquidada")));
-        when(avanceNivelRepository.findByIdNumeroControlAndIdIdNivel("22520003", 6))
-                .thenReturn(Optional.of(avance));
+        when(avanceNivelRepository.findByIdNumeroControl("22520003")).thenReturn(avance);
 
-        service.cerrarActaPorCoordinacion(4, OBSERVACION,
-                List.of(new NivelAcreditadoRequest("22520003", 6)), coordinador());
+        // Ya no se envía un nivel por alumno.
+        service.cerrarActaPorCoordinacion(4, OBSERVACION, List.of(), coordinador());
 
-        assertEquals(6, alumno.getNivelAcreditado().getId());
-        assertEquals(EstatusAvance.ACREDITADO, avance.getEstatus());
-        verify(avanceNivelRepository).findByIdNumeroControlAndIdIdNivel("22520003", 6);
-        verify(avanceNivelRepository, never()).findByIdNumeroControlAndIdIdNivel("22520003", 0);
+        assertTrue(avance.stream().allMatch(a -> a.getEstatus() == EstatusAvance.ACREDITADO));
+        assertEquals("Curso", avance.get(0).getOrigen(), "un nivel ya acreditado conserva su origen");
+        assertTrue(avance.stream().skip(1).allMatch(a -> GrupoService.ORIGEN_INTENSIVO.equals(a.getOrigen())));
     }
 
     @Test
-    void cierreIntensivoExigeUnNivelPorAlumno() {
+    void cierreIntensivoReprobadoNoCambiaElAvance() {
         Grupo grupo = grupoAbierto();
         when(grupo.isIntensivo()).thenReturn(true);
-        when(inscripcionRepository.findByGrupoId(4)).thenReturn(List.of(inscripcion(grupo, "22520003", 92, 8)));
+        Inscripcion alumno = inscripcion(grupo, "22520003", 60, 8);
+        when(inscripcionRepository.findByGrupoId(4)).thenReturn(List.of(alumno));
+        when(autorizacionRepository.findByIdIn(anyList())).thenReturn(List.of(cargo(8, "Liquidada")));
 
-        assertThrows(DatosInvalidosException.class,
-                () -> service.cerrarActaPorCoordinacion(4, OBSERVACION, List.of(), coordinador()));
+        service.cerrarActaPorCoordinacion(4, OBSERVACION, List.of(), coordinador());
 
-        verify(autorizacionRepository, never()).findByIdIn(anyList());
-        verify(grupoRepository, never()).save(grupo);
+        verify(avanceNivelRepository, never()).findByIdNumeroControl("22520003");
     }
 
     @Test

@@ -46,7 +46,8 @@ import mx.edu.itch.sigclem.comun.excepcion.DatosInvalidosException;
  * <ul>
  * <li>Los campos vacíos se guardan vacíos; solo se exige número de control, nombre, apellido paterno y carrera.</li>
  * <li>La calificación se interpreta («100 (Cien)» → 100, «NA BAJA» → no acreditado) y se conserva el texto original.</li>
- * <li>Con 70 o más, el nivel queda acreditado en el avance con origen «Histórico»; «Liberado = Sí» libera el idioma.</li>
+ * <li>Con 70 o más, el nivel queda acreditado en el avance con origen «Histórico»; un Intensivo aprobado acredita los
+ * diez niveles (origen «Curso intensivo») y «Liberado = Sí» libera el idioma.</li>
  * <li>Si se adjunta la matrícula de control escolar, de ahí se toman semestre, sexo, correo y lengua indígena.</li>
  * <li>Cada fila se guarda en su propia transacción: una fila con error no deja datos a medias ni detiene la carga.</li>
  * <li>Volver a subir el archivo actualiza los mismos registros, no los duplica.</li>
@@ -223,6 +224,7 @@ public class ImportacionConcentradoService {
 
         int registros = 0;
         List<Nivel> acreditadosFila = new ArrayList<>();
+        boolean intensivoAprobado = false;
         for (Bloque bloque : col.bloques()) {
             String calificacionTexto = texto(fila, bloque.columna(), formato);
             String periodo = periodo(fila.getCell(bloque.columna() + 1), formato);
@@ -256,12 +258,14 @@ public class ImportacionConcentradoService {
 
             Nivel nivel = niveles.get(normalizar(bloque.nivel()));
             if (Boolean.TRUE.equals(acreditado) && nivel != null) {
-                acreditadosFila.add(nivel); // El Intensivo no está en el catálogo de niveles: solo queda en el historial.
+                acreditadosFila.add(nivel);
+            } else if (Boolean.TRUE.equals(acreditado) && "Intensivo".equals(bloque.nivel())) {
+                intensivoAprobado = true; // El curso Intensivo aprobado acredita los diez niveles.
             }
         }
 
         boolean liberado = col.liberado() >= 0 && esSi(texto(fila, col.liberado(), formato));
-        int nuevosAcreditados = aplicarAvance(numeroControl, acreditadosFila, liberado);
+        int nuevosAcreditados = aplicarAvance(numeroControl, acreditadosFila, intensivoAprobado, liberado);
         if (liberado) {
             alumno.setLiberado(true);
         }
@@ -273,7 +277,8 @@ public class ImportacionConcentradoService {
      * Acredita en el avance los niveles con 70 o más (sin tocar los ya cubiertos ni el que se está cursando),
      * habilita el primer nivel pendiente y, si el concentrado dice «Liberado», deja exentos los niveles restantes.
      */
-    private int aplicarAvance(String numeroControl, List<Nivel> acreditados, boolean liberado) {
+    private int aplicarAvance(String numeroControl, List<Nivel> acreditados, boolean intensivoAprobado,
+            boolean liberado) {
         List<Nivel> catalogo = nivelRepository.findAllByOrderByNumeroAsc();
         Map<Integer, AvanceNivel> avance = new HashMap<>();
         for (AvanceNivel a : avanceRepository.findByIdNumeroControl(numeroControl)) {
@@ -290,6 +295,16 @@ public class ImportacionConcentradoService {
                 a.setOrigen(ORIGEN_HISTORICO);
                 a.setFechaRegistro(LocalDate.now());
                 nuevos++;
+            }
+        }
+        if (intensivoAprobado) {
+            for (AvanceNivel a : avance.values()) {
+                if (!a.getEstatus().cubreNivel() && a.getEstatus() != EstatusAvance.CURSANDO) {
+                    a.setEstatus(EstatusAvance.ACREDITADO);
+                    a.setOrigen(mx.edu.itch.sigclem.grupos.service.GrupoService.ORIGEN_INTENSIVO);
+                    a.setFechaRegistro(LocalDate.now());
+                    nuevos++;
+                }
             }
         }
         if (liberado) {

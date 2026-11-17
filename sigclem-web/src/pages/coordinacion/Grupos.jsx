@@ -596,7 +596,7 @@ function PanelAlumnos({ grupo, niveles, onCerrar, onEditar, soloLectura = false 
         </div>
       )}
       {observar && (
-        <ModalObservacion grupo={g} observar={observar} alumnos={inscritos} niveles={niveles}
+        <ModalObservacion grupo={g} observar={observar}
           sinLiquidar={sinLiquidar} onCancelar={() => setObservar(null)}
           onConfirmar={(texto, nivelesAcreditados) => {
             const actual = observar;
@@ -658,7 +658,7 @@ function SeccionActa({ grupo, cerrada, todasCapturadas, sinLiquidar, ocupado, on
       </div>
       <p className="mt-1 text-xs text-tenue">
         {!todasCapturadas ? "El facilitador aún no captura todas las calificaciones por nivel; puedes descargar el acta preliminar."
-          : grupo.intensivo ? "Todas las calificaciones están capturadas; coordinación debe seleccionar el nivel de cada alumno y cerrar el acta."
+          : grupo.intensivo ? "Todas las calificaciones están capturadas; coordinación cierra el acta y quien aprobó (70 o más) acredita los diez niveles."
           : sinLiquidar.length === 0 ? "Todos liquidaron su curso; el facilitador o coordinación pueden cerrar el acta."
             : `${sinLiquidar.length} alumno(s) con uno o más niveles sin liquidar: conservarán las calificaciones y quedarán pendientes los avances de esos niveles.`}
       </p>
@@ -667,37 +667,18 @@ function SeccionActa({ grupo, cerrada, todasCapturadas, sinLiquidar, ocupado, on
 }
 
 /** Captura de la observación obligatoria para cerrar el acta o asignar un nivel pendiente. */
-function ModalObservacion({ grupo, observar, alumnos, niveles, sinLiquidar, onCancelar, onConfirmar }) {
+function ModalObservacion({ grupo, observar, sinLiquidar, onCancelar, onConfirmar }) {
   const [texto, setTexto] = useState('');
-  const [nivelPorAlumno, setNivelPorAlumno] = useState(() => Object.fromEntries(
-    alumnos.map((alumno) => [
-      alumno.numeroControl,
-      alumno.idNivelAcreditado ? String(alumno.idNivelAcreditado) : '',
-    ]),
-  ));
   const valido = texto.trim().length >= 10;
   const esCierre = observar.tipo === 'cierre';
   const a = observar.alumno;
-  const nivelesCompletos = !grupo.intensivo || alumnos.every((alumno) => nivelPorAlumno[alumno.numeroControl]);
   return (
     <Modal titulo={esCierre ? 'Cerrar acta desde coordinación' : 'Asignar nivel pendiente'} onCerrar={onCancelar} ancho="max-w-lg">
       {esCierre ? (
         <div className="text-[13px]">
           <p>Se cerrará el acta de <b>{etiquetaGrupo(grupo)}</b>. {grupo.intensivo
-            ? 'Elige el nivel que acreditará la calificación final de cada alumno.'
+            ? 'Es un curso Intensivo: cada alumno que aprobó (70 o más) y liquidó su curso acredita los diez niveles y libera el idioma.'
             : 'Se registrará por separado el avance de cada nivel que ya esté liquidado.'}</p>
-          {grupo.intensivo && <div className="mt-3 grid max-h-52 gap-2 overflow-y-auto">
-            {alumnos.map((alumno) => (
-              <Campo key={alumno.numeroControl} etiqueta={`${alumno.nombreCompleto} · ${alumno.numeroControl}`}
-                id={`nivel-${alumno.numeroControl}`}>
-                <select className={claseEntrada} required value={nivelPorAlumno[alumno.numeroControl] || ''}
-                  onChange={(e) => setNivelPorAlumno({ ...nivelPorAlumno, [alumno.numeroControl]: e.target.value })}>
-                  <option value="">Selecciona el nivel acreditado</option>
-                  {niveles.map((nivel) => <option key={nivel.id} value={nivel.id}>{nivel.numero}. {nivel.nombre}</option>)}
-                </select>
-              </Campo>
-            ))}
-          </div>}
           {sinLiquidar.length > 0 && (
             <>
               <p className="mt-2">Sin liquidar (calificación registrada, nivel pendiente):</p>
@@ -710,9 +691,14 @@ function ModalObservacion({ grupo, observar, alumnos, niveles, sinLiquidar, onCa
       ) : (
         <div className="text-[13px]">
           <p><b>{a.nombreCompleto}</b> ({a.numeroControl}) · Calificación <b>{a.calificacionFinal}</b> · Pago: <b>{a.estatusPago}</b></p>
-          {grupo.intensivo && a.nivelAcreditado && <p className="mt-1">Nivel a actualizar: <b>{a.nivelAcreditado}</b>.</p>}
-          <p className="mt-1">Se registrará el nivel como <b>{a.calificacionFinal >= 70 ? 'Acreditado' : 'Reprobado'}</b> y, si acreditó,
-            se habilitará el siguiente nivel.</p>
+          {grupo.intensivo ? (
+            <p className="mt-1">{a.calificacionFinal >= 70
+              ? <>Curso Intensivo aprobado: se acreditarán <b>los diez niveles</b>.</>
+              : 'Curso Intensivo no aprobado: el avance no cambia.'}</p>
+          ) : (
+            <p className="mt-1">Se registrará el nivel como <b>{a.calificacionFinal >= 70 ? 'Acreditado' : 'Reprobado'}</b> y, si acreditó,
+              se habilitará el siguiente nivel.</p>
+          )}
           {a.estatusPago !== 'Liquidada' && (
             <Alerta tipo="aviso" className="mt-2">El curso aún no aparece liquidado. Indica en la observación cómo se comprobó el pago.</Alerta>
           )}
@@ -729,13 +715,7 @@ function ModalObservacion({ grupo, observar, alumnos, niveles, sinLiquidar, onCa
       </div>
       <div className="mt-5 flex justify-end gap-2">
         <Boton variante="secundario" onClick={onCancelar}>Cancelar</Boton>
-        <Boton disabled={!valido || (esCierre && !nivelesCompletos)}
-          onClick={() => onConfirmar(texto.trim(), grupo.intensivo
-            ? alumnos.map((alumno) => ({
-              numeroControl: alumno.numeroControl,
-              idNivel: Number(nivelPorAlumno[alumno.numeroControl]),
-            }))
-            : [])}>{esCierre ? 'Cerrar acta' : 'Asignar nivel'}</Boton>
+        <Boton disabled={!valido} onClick={() => onConfirmar(texto.trim(), [])}>{esCierre ? 'Cerrar acta' : 'Asignar nivel'}</Boton>
       </div>
     </Modal>
   );

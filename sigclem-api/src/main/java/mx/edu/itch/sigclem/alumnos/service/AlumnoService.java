@@ -202,7 +202,8 @@ public class AlumnoService {
                 .map(AvanceNivel::getOrigen)
                 .filter(java.util.Objects::nonNull)
                 .collect(Collectors.toSet());
-        for (String forma : List.of("Examen global", "Lengua materna", ImportacionConcentradoService.ORIGEN_LIBERADO)) {
+        for (String forma : List.of("Examen global", "Lengua materna",
+                mx.edu.itch.sigclem.grupos.service.GrupoService.ORIGEN_INTENSIVO, ImportacionConcentradoService.ORIGEN_LIBERADO)) {
             if (origenes.contains(forma)) return forma;
         }
         for (String origen : origenes) {

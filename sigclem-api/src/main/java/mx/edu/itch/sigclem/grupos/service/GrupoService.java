@@ -57,6 +57,9 @@ import mx.edu.itch.sigclem.pagos.repository.AutorizacionPagoRepository;
 @RequiredArgsConstructor
 public class GrupoService {
 
+    /** Origen del avance acreditado por un curso Intensivo aprobado. */
+    public static final String ORIGEN_INTENSIVO = "Curso intensivo";
+
     /** Identificador que no corresponde a ningún grupo: al abrir uno nuevo no hay horarios propios que excluir. */
     private static final int SIN_GRUPO = -1;
 
@@ -287,7 +290,7 @@ public class GrupoService {
         verificarPeriodoEditable(grupo);
         if (grupo.isIntensivo()) {
             throw new ReglaNegocioException("ACT-011",
-                    "El acta de un curso Intensivo debe cerrarse desde coordinación, que asignará el nivel de cada alumno.");
+                    "El acta de un curso Intensivo debe cerrarse desde coordinación; al aprobarlo se acreditan los diez niveles.");
         }
         List<Inscripcion> inscripciones = inscripcionesParaCierre(grupo);
         // Regla de negocio: ningún avance académico se registra sin el cargo del curso liquidado.
@@ -316,8 +319,8 @@ public class GrupoService {
     /**
      * Cierre por coordinación con observación obligatoria, aunque haya alumnos sin liquidar su curso: a quienes ya
      * pagaron se les aplica el nivel; los demás conservan su calificación con el nivel pendiente, que coordinación
-     * asigna después de forma individual ({@link #asignarNivelPendiente}). En Intensivo se recibe el nivel acreditado
-     * para cada alumno. No depende de las fechas del periodo.
+     * asigna después de forma individual ({@link #asignarNivelPendiente}). En Intensivo, aprobar (70 o más) acredita
+     * los diez niveles con origen «Curso intensivo». No depende de las fechas del periodo.
      */
     @Transactional
     public ActaDTO cerrarActaPorCoordinacion(Integer id, String observacion, Authentication auth) {
@@ -337,8 +340,7 @@ public class GrupoService {
         for (Inscripcion inscripcion : inscripciones) {
             if (grupo.isIntensivo()) {
                 if (cursoLiquidado(inscripcion, cargos)) {
-                    actualizarAvance(inscripcion, inscripcion.getNivelAcreditado(),
-                            inscripcion.getCalificacionFinal(), siguientes);
+                    acreditarIntensivo(inscripcion, inscripcion.getCalificacionFinal());
                 } else {
                     inscripcion.setAvancePendiente(true);
                 }
@@ -368,37 +370,35 @@ public class GrupoService {
         return ActaDTO.desde(grupo, inscripciones, cargos);
     }
 
+    /** El curso Intensivo ya no recibe un nivel por alumno: aprobarlo acredita los diez niveles. */
     private void asignarNivelesIntensivo(Grupo grupo, List<Inscripcion> inscripciones,
-           List<NivelAcreditadoRequest> nivelesAcreditados) {
-       if (!grupo.isIntensivo()) {
-           if (nivelesAcreditados != null && !nivelesAcreditados.isEmpty()) {
-               throw new DatosInvalidosException("ACT-013",
-                       "Los niveles individuales solo aplican al curso Intensivo.");
-           }
-           return;
-       }
-       if (nivelesAcreditados == null || nivelesAcreditados.size() != inscripciones.size()) {
-           throw new DatosInvalidosException("ACT-014",
-                   "Debes seleccionar un nivel acreditado para cada alumno del curso Intensivo.");
-       }
-       Map<Integer, Nivel> nivelesPorId = nivelRepository.findAllByOrderByNumeroAsc().stream()
-               .filter(n -> n.getNumero() >= 1 && n.getNumero() <= 10)
-               .collect(Collectors.toMap(Nivel::getId, Function.identity()));
-       Map<String, Inscripcion> inscripcionesPorAlumno = inscripciones.stream()
-               .collect(Collectors.toMap(i -> i.getAlumno().getNumeroControl(), Function.identity()));
-       for (NivelAcreditadoRequest seleccion : nivelesAcreditados) {
-           Inscripcion inscripcion = inscripcionesPorAlumno.remove(seleccion.numeroControl());
-           Nivel nivel = nivelesPorId.get(seleccion.idNivel());
-           if (inscripcion == null || nivel == null) {
-               throw new DatosInvalidosException("ACT-015",
-                       "Cada alumno debe aparecer una sola vez y tener asignado uno de los diez niveles.");
-           }
-           inscripcion.setNivelAcreditado(nivel);
-       }
-       if (!inscripcionesPorAlumno.isEmpty()) {
-           throw new DatosInvalidosException("ACT-014",
-                   "Debes seleccionar un nivel acreditado para cada alumno del curso Intensivo.");
-       }
+            List<NivelAcreditadoRequest> nivelesAcreditados) {
+        if (!grupo.isIntensivo() && nivelesAcreditados != null && !nivelesAcreditados.isEmpty()) {
+            throw new DatosInvalidosException("ACT-013",
+                    "Los niveles individuales solo aplican al curso Intensivo.");
+        }
+    }
+
+    /**
+     * Curso Intensivo (tres meses, virtual): con 70 o más se acreditan los diez niveles que aún no estén cubiertos,
+     * con origen «Curso intensivo», y el idioma queda liberado. Con menos de 70 el avance no cambia.
+     */
+    private void acreditarIntensivo(Inscripcion inscripcion, Integer calificacion) {
+        if (calificacion == null || calificacion < 70) {
+            return;
+        }
+        String numeroControl = inscripcion.getAlumno().getNumeroControl();
+        List<AvanceNivel> avance = avanceNivelRepository.findByIdNumeroControl(numeroControl);
+        for (AvanceNivel a : avance) {
+            if (!a.getEstatus().cubreNivel()) {
+                a.setEstatus(EstatusAvance.ACREDITADO);
+                a.setOrigen(ORIGEN_INTENSIVO);
+            }
+        }
+        avanceNivelRepository.saveAll(avance);
+        nivelRepository.findAllByOrderByNumeroAsc().stream()
+                .max(java.util.Comparator.comparing(Nivel::getNumero))
+                .ifPresent(inscripcion::setNivelAcreditado);
     }
 
     /**
@@ -423,8 +423,11 @@ public class GrupoService {
         boolean aplicado = false;
         Integer calificacionAplicada = null;
         if (inscripcion.isAvancePendiente() && cursoLiquidado(inscripcion, cargos)) {
-            Nivel nivel = grupo.isIntensivo() ? inscripcion.getNivelAcreditado() : grupo.getNivel();
-            actualizarAvance(inscripcion, nivel, inscripcion.getCalificacionFinal(), siguientes);
+            if (grupo.isIntensivo()) {
+                acreditarIntensivo(inscripcion, inscripcion.getCalificacionFinal());
+            } else {
+                actualizarAvance(inscripcion, grupo.getNivel(), inscripcion.getCalificacionFinal(), siguientes);
+            }
             inscripcion.setAvancePendiente(false);
             aplicado = true;
             calificacionAplicada = inscripcion.getCalificacionFinal();

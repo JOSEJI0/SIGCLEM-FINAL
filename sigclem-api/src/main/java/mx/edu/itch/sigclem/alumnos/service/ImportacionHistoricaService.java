@@ -125,7 +125,7 @@ public class ImportacionHistoricaService {
             instrucciones.createRow(7).createCell(0).setCellValue(
                     "No elimines ni cambies las claves de grupos ya exportados; los campos de alumnos existentes no se sobrescriben.");
             instrucciones.createRow(8).createCell(0).setCellValue(
-                    "Para grupos Intensivos marca «Sí» en Curso Intensivo. El nivel acreditado puede completarse después.");
+                    "Para grupos Intensivos marca «Sí» en Curso Intensivo. Aprobarlo (70 o más) acredita los diez niveles.");
             instrucciones.createRow(9).createCell(0).setCellValue(
                     "Las dos columnas nuevas son opcionales al importar plantillas antiguas; no borres las columnas existentes.");
             instrucciones.setColumnWidth(0, 15000);
@@ -1059,7 +1059,19 @@ public class ImportacionHistoricaService {
 
     private void actualizarAvance(FilaInscripcion fila, Map<Integer, Integer> siguientes) {
         String numeroControl = fila.numeroControl();
-        Nivel nivelAcreditado = fila.grupo().isIntensivo() ? fila.nivelAcreditado() : fila.grupo().getNivel();
+        if (fila.grupo().isIntensivo()) {
+            // Curso Intensivo aprobado: acredita los diez niveles (la columna «Nivel acreditado» ya no se usa).
+            if (fila.calificacion() >= 70) {
+                List<AvanceNivel> avance = avanceRepository.findByIdNumeroControl(numeroControl);
+                avance.stream().filter(a -> !a.getEstatus().cubreNivel()).forEach(a -> {
+                    a.setEstatus(EstatusAvance.ACREDITADO);
+                    a.setOrigen(mx.edu.itch.sigclem.grupos.service.GrupoService.ORIGEN_INTENSIVO);
+                });
+                avanceRepository.saveAll(avance);
+            }
+            return;
+        }
+        Nivel nivelAcreditado = fila.grupo().getNivel();
         if (nivelAcreditado == null) return;
         Integer idNivel = nivelAcreditado.getId();
         AvanceNivel avance = avanceRepository.findByIdNumeroControlAndIdIdNivel(numeroControl, idNivel).orElse(null);

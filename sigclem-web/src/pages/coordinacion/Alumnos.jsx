@@ -14,7 +14,7 @@ import { Alerta, Boton, Campo, Cargando, Insignia, Tarjeta, claseEntrada } from 
 import { Modal } from '../../components/Modal';
 
 const FILTROS_VACIOS = { idCarrera: '', numeroControl: '', nombre: '', nivel: '', semestre: '', estatus: '', formaLiberacion: '' };
-const SEMESTRES = Array.from({ length: 12 }, (_, i) => i + 1);
+const SEMESTRES = Array.from({ length: 15 }, (_, i) => i + 1);
 const SEXO = { H: 'Hombre', M: 'Mujer' };
 
 function fechaCorta(iso) {
@@ -130,6 +130,7 @@ export default function Alumnos() {
               <option value="0:Examen global">Idioma acreditado · Examen global</option>
               <option value="0:Lengua materna">Idioma acreditado · Lengua materna</option>
               <option value="0:Curso">Idioma acreditado · Cursos concluidos</option>
+              <option value="0:Registro histórico">Idioma acreditado · Registro histórico</option>
             </select>
           </Campo>
           <Campo etiqueta="Estatus" id="filtroEstatus">
@@ -144,7 +145,7 @@ export default function Alumnos() {
               placeholder="Ej. Examen global" value={busqueda.formaLiberacion}
               onChange={cambiarFiltro('formaLiberacion')} />
             <datalist id="formas-liberacion">
-              {['Curso', 'Examen de colocación', 'Examen de cuatro habilidades', 'Examen global', 'Lengua materna']
+              {['Curso', 'Examen de colocación', 'Examen de cuatro habilidades', 'Examen global', 'Lengua materna', 'Registro histórico']
                 .map((f) => <option key={f} value={f} />)}
             </datalist>
           </Campo>
@@ -214,7 +215,7 @@ export default function Alumnos() {
                       <td className="px-2 py-3">{SEXO[alumno.sexo] || '—'}</td>
                       <td className="px-2 py-3">{alumno.carrera}</td>
                       <td className="px-2 py-3">
-                        {alumno.semestre}.º
+                        {alumno.semestre ? `${alumno.semestre}.º` : "—"}
                         <div className="text-[11px] text-tenue" title="Fecha en que el alumno confirmó su semestre">
                           {fechaCorta(alumno.fechaActualizacionSemestre) ? `Act. ${fechaCorta(alumno.fechaActualizacionSemestre)}` : 'Sin confirmar'}
                         </div>
@@ -302,9 +303,10 @@ export default function Alumnos() {
         <ModalImportar 
           onCerrar={() => setModal(null)} 
           onImportado={(r) => recargar(
-            `Importación: ${r.creados} alumnos nuevos, ${r.gruposImportados ?? 0} grupos y ` +
-            `${r.inscripcionesImportadas ?? r.nivelesImportados} inscripciones; ` +
-            `${r.nivelesImportados} registros informativos.`
+            `Importación: ${r.creados} alumnos nuevos, ${r.actualizados ?? 0} actualizados, ` +
+            `${r.nivelesImportados} niveles en el historial` +
+            (r.gruposImportados ? `, ${r.gruposImportados} grupos y ${r.inscripcionesImportadas} inscripciones` : '') +
+            (r.errores.length ? `; ${r.errores.length} fila(s) pendientes.` : '.')
           )}
         />
       )}
@@ -418,6 +420,7 @@ function ModalNuevoAlumno({ carreras, onCerrar, onCreado }) {
 /** Carga masiva desde Excel con reporte de resultado. */
 function ModalImportar({ onCerrar, onImportado }) {
   const [archivo, setArchivo] = useState(null);
+  const [matricula, setMatricula] = useState(null);
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState('');
   const [subiendo, setSubiendo] = useState(false);
@@ -440,7 +443,7 @@ function ModalImportar({ onCerrar, onImportado }) {
     setError('');
     setResultado(null);
     try {
-      const r = await cargarAlumnosExcel(archivo);
+      const r = await cargarAlumnosExcel(archivo, matricula);
       setResultado(r);
     } catch (e) {
       setError(mensajeError(e));
@@ -449,21 +452,52 @@ function ModalImportar({ onCerrar, onImportado }) {
     }
   };
 
+  /** Descarga las filas pendientes (CSV que abre Excel) para corregirlas en el concentrado y volver a subirlas. */
+  const descargarPendientes = () => {
+    const escapar = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lineas = [['Fila del Excel', 'Número de control', 'Motivo'],
+      ...resultado.errores.map((x) => [x.fila, x.numeroControl, x.mensaje ?? x.motivo])];
+    const blob = new Blob(['﻿' + lineas.map((l) => l.map(escapar).join(',')).join('\r\n')],
+      { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'pendientes-importacion.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const claseArchivo = 'block w-full text-[13px] file:mr-3 file:rounded-lg file:border-0 file:bg-marino file:px-3 file:py-2 file:text-white';
+  const esConcentrado = resultado && (resultado.actualizados > 0 || resultado.conMatricula > 0 || resultado.nivelesAcreditados > 0
+    || (resultado.gruposImportados === 0 && resultado.inscripcionesImportadas === 0));
+
   return (
-    <Modal titulo="Importar alumnos desde Excel" onCerrar={onCerrar} ancho="max-w-xl">
+    <Modal titulo="Importar histórico desde Excel" onCerrar={onCerrar} ancho="max-w-xl">
       <p className="text-[13px]">
-        Importa el histórico o agrega registros históricos que aún no estén en el sistema. Para completar campos vacíos
-        sin modificar los datos existentes, usa «Completar datos existentes».
-        El formato usa las hojas Alumnos, Grupos, Inscripciones, Horarios e Historial_Informativo. Antes de importar,
-        captura el cupo real de cada grupo nuevo y confirma que sus facilitadores estén registrados. Las celdas vacías
-        de calificación no borran calificaciones existentes. No se generan cargos ni comprobantes.
+        Sube el <b>concentrado de la coordinación</b> tal como está (una fila por alumno con Básico 1 … Intermedio 5,
+        Intensivo y Liberado). No hace falta llenar los espacios en blanco: lo que no venga se guarda vacío. Las
+        calificaciones de 70 o más acreditan el nivel y «Liberado = Sí» libera el idioma.
+      </p>
+      <p className="mt-2 text-[13px] text-tenue">
+        También acepta la plantilla completa (hojas Grupos, Inscripciones y Horarios) para periodos con todos los datos.
+        Puedes volver a subir el archivo: no se duplica nada. No se generan cargos ni comprobantes.
       </p>
       <Boton variante="secundario" type="button" className="mt-3" onClick={plantilla}>
-        <Download className="h-4 w-4" /> Descargar plantilla
+        <Download className="h-4 w-4" /> Descargar plantilla completa
       </Boton>
-      <div className="mt-4">
-        <input type="file" accept=".xlsx" onChange={(e) => { setArchivo(e.target.files[0]); setResultado(null); }}
-          className="block w-full text-[13px] file:mr-3 file:rounded-lg file:border-0 file:bg-marino file:px-3 file:py-2 file:text-white" />
+      <div className="mt-4 grid gap-3">
+        <Campo etiqueta="Concentrado histórico o plantilla completa (.xlsx)" id="archivo-historico">
+          <input id="archivo-historico" type="file" accept=".xlsx" className={claseArchivo}
+            onChange={(e) => { setArchivo(e.target.files[0]); setResultado(null); }} />
+        </Campo>
+        <Campo etiqueta="Matrícula de control escolar (opcional, .xlsx)" id="archivo-matricula">
+          <input id="archivo-matricula" type="file" accept=".xlsx" className={claseArchivo}
+            onChange={(e) => { setMatricula(e.target.files[0] || null); setResultado(null); }} />
+          <span className="mt-1 block text-xs text-tenue">
+            Completa semestre, sexo, correo y lengua indígena de los alumnos que siguen inscritos. A quien no aparezca
+            (egresados, desertores) se le dejan vacíos.
+          </span>
+        </Campo>
       </div>
       {error && <Alerta tipo="error" className="mt-3">{error}</Alerta>}
       {resultado && (
@@ -471,21 +505,41 @@ function ModalImportar({ onCerrar, onImportado }) {
           <Alerta tipo={resultado.errores.length ? 'aviso' : 'ok'}>
             <b>Resumen de importación:</b><br/>
             - Filas procesadas: {resultado.filas}<br/>
-            - Alumnos nuevos: {resultado.creados}<br/>
-            - Grupos históricos procesados: {resultado.gruposImportados ?? 0}<br/>
-            - Inscripciones históricas procesadas: {resultado.inscripcionesImportadas ?? resultado.nivelesImportados}
-            <br/>- Horarios agregados: {resultado.horariosImportados ?? 0}
-            <br/>- Registros informativos: {resultado.nivelesImportados}
-            {resultado.errores.length > 0 && <><br/><b>{resultado.errores.length} fila(s) con error:</b></>}
+            - Alumnos nuevos: {resultado.creados}
+            {esConcentrado ? (
+              <>
+                <br/>- Alumnos ya registrados actualizados: {resultado.actualizados}
+                <br/>- Niveles guardados en el historial: {resultado.nivelesImportados}
+                <br/>- Niveles acreditados en el avance: {resultado.nivelesAcreditados}
+                <br/>- Alumnos con el idioma liberado: {resultado.liberados}
+                <br/>- Alumnos completados con la matrícula: {resultado.conMatricula}
+              </>
+            ) : (
+              <>
+                <br/>- Grupos históricos procesados: {resultado.gruposImportados ?? 0}
+                <br/>- Inscripciones históricas procesadas: {resultado.inscripcionesImportadas ?? 0}
+                <br/>- Horarios agregados: {resultado.horariosImportados ?? 0}
+                <br/>- Registros informativos: {resultado.nivelesImportados}
+              </>
+            )}
+            {resultado.errores.length > 0 && (
+              <><br/><b>{resultado.errores.length} fila(s) pendientes</b> (el resto sí se guardó). Corrígelas en el
+                Excel y vuelve a subirlo:</>
+            )}
           </Alerta>
           {resultado.errores.length > 0 && (
             <ul className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-linea text-xs">
-              {resultado.errores.map((x) => (
-                <li key={x.fila} className="border-b border-linea px-3 py-1.5 last:border-0">
+              {resultado.errores.map((x, i) => (
+                <li key={`${x.fila}-${i}`} className="border-b border-linea px-3 py-1.5 last:border-0">
                   <b>Fila {x.fila}</b>{x.numeroControl ? ` (${x.numeroControl})` : ''}: {x.mensaje ?? x.motivo}
                 </li>
               ))}
             </ul>
+          )}
+          {resultado.errores.length > 0 && (
+            <Boton variante="secundario" type="button" className="mt-2" onClick={descargarPendientes}>
+              <Download className="h-4 w-4" /> Descargar pendientes
+            </Boton>
           )}
         </div>
       )}

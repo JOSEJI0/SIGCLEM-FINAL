@@ -43,18 +43,24 @@ public class AlumnoController {
 
     @Operation(summary = "Importar alumnos e histórico desde Excel",
             description = "Rol: [Coordinador]. Importa alumnos, grupos históricos cerrados, horarios y calificaciones "
-                    + "sin generar cargos. Acepta el concentrado General anterior y la plantilla histórica previa.")
+                    + "sin generar cargos. Acepta el concentrado de la coordinación (con la matrícula de control "
+                    + "escolar opcional para completar semestre, sexo, correo y lengua indígena) y la plantilla "
+                    + "completa con hojas Grupos e Inscripciones. Las filas con error no detienen la carga.")
     @PostMapping(value = "/carga", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasRole('COORDINADOR')")
     public mx.edu.itch.sigclem.alumnos.dto.ResultadoCargaDTO cargar(
             @org.springframework.web.bind.annotation.RequestParam("archivo")
-            org.springframework.web.multipart.MultipartFile archivo) {
-        var resultado = importacionService.importar(archivo);
+            org.springframework.web.multipart.MultipartFile archivo,
+            @org.springframework.web.bind.annotation.RequestParam(value = "matricula", required = false)
+            org.springframework.web.multipart.MultipartFile matricula) {
+        var resultado = importacionService.importar(archivo, matricula);
         auditoria.registrar(mx.edu.itch.sigclem.auditoria.domain.AccionAuditoria.ALUMNOS_IMPORTADOS,
                 mx.edu.itch.sigclem.auditoria.domain.RegistroAuditoria.OK,
-                resultado.creados() + " alumnos nuevos y " + resultado.inscripcionesImportadas()
-                        + " inscripciones históricas y " + resultado.horariosImportados()
-                        + " horarios importados desde Excel.");
+                resultado.creados() + " alumnos nuevos, " + resultado.actualizados() + " actualizados, "
+                        + resultado.nivelesImportados() + " registros de historial, "
+                        + resultado.inscripcionesImportadas() + " inscripciones históricas y "
+                        + resultado.horariosImportados() + " horarios importados desde Excel; "
+                        + resultado.errores().size() + " fila(s) pendientes.");
         return resultado;
     }
 

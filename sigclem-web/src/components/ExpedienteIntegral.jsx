@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react';
-import { Award, BookOpen, ClipboardList, CreditCard, Languages, Network } from 'lucide-react';
+import { Award, BookOpen, ClipboardList, CreditCard, History, Languages, Network } from 'lucide-react';
 import { Insignia, Tarjeta } from './ui';
 import AvanceReticular from './AvanceReticular';
 
@@ -31,11 +31,13 @@ function Tabla({ columnas, filas }) {
 export default function ExpedienteIntegral({ datos }) {
   const [pestana, setPestana] = useState('avance');
   const { expediente: e, historial, cargos, examenes, diagnosticos, constancias, lenguasMaternas } = datos;
+  const historialAnterior = datos.historialAnterior || [];
   const saldo = cargos.reduce((s, c) => s + Number(c.saldoPendiente || 0), 0);
 
   const PESTANAS = [
     ['avance', 'Avance', Network],
     ['historial', `Cursos (${historial.length})`, BookOpen],
+    ...(historialAnterior.length ? [['anterior', `Historial anterior (${historialAnterior.length})`, History]] : []),
     ['pagos', `Pagos (${cargos.length})`, CreditCard],
     ['examenes', `Exámenes y diagnósticos (${examenes.length + diagnosticos.length})`, ClipboardList],
     ['constancias', `Constancias (${constancias.length})`, Award],
@@ -45,7 +47,7 @@ export default function ExpedienteIntegral({ datos }) {
   const datosGenerales = [
     ['Nombre', e.nombreCompleto], ['Número de control', e.numeroControl],
     ['Sexo', { H: 'Hombre', M: 'Mujer' }[e.sexo] || '—'], ['Carrera', e.carrera],
-    ['Semestre', `${e.semestre}.º`], ['Correo', e.correo || '—'], ['Fecha de alta', fecha(e.fechaInscripcion)],
+    ['Semestre', e.semestre ? `${e.semestre}.º` : 'Sin dato'], ['Correo', e.correo || '—'], ['Fecha de alta', fecha(e.fechaInscripcion)],
     ['Estatus', e.estatus === 'Baja' ? `Baja${e.motivoBaja ? ` (${e.motivoBaja})` : ''}` : 'Activo'],
     ['Nivel actual', e.formaLiberacion
       ? <span key="n"><b>{e.nivelActual}</b> <span className="text-xs text-tenue">(liberado por {e.formaLiberacion})</span></span>
@@ -86,6 +88,21 @@ export default function ExpedienteIntegral({ datos }) {
             <Insignia key="r" estatus={h.resultado === 'No acreditado' ? 'Reprobado' : h.resultado === 'Acreditado' ? 'Acreditado' : 'Pendiente'}>{h.resultado}</Insignia>,
             fecha(h.fechaCierreActa)])} />
       ))}
+
+      {pestana === 'anterior' && (
+        <>
+          <p className="mb-2 text-xs text-tenue">
+            Niveles cursados antes del sistema, tal como vienen en el concentrado histórico. Los datos que no se
+            registraron aparecen como «—».
+          </p>
+          <Tabla columnas={['Nivel', 'Periodo', 'Facilitador', 'Grupo', 'Horario', 'Aula', 'Calificación', 'Resultado']}
+            filas={historialAnterior.map((h) => [h.nivel, h.periodo || '—', h.facilitador || '—', h.grupo || '—',
+              h.horario || '—', h.aula || '—', h.calificacionTexto || (h.calificacion ?? '—'),
+              h.acreditado == null
+                ? <Insignia key="r" estatus="Pendiente">Sin determinar</Insignia>
+                : <Insignia key="r" estatus={h.acreditado ? 'Acreditado' : 'Reprobado'}>{h.acreditado ? 'Acreditado' : 'No acreditado'}</Insignia>])} />
+        </>
+      )}
 
       {pestana === 'pagos' && (cargos.length === 0 ? <Vacio>No tiene cargos emitidos.</Vacio> : (
         <Tabla columnas={['Concepto', 'Periodo', 'Emisión', 'Monto', 'Saldo', 'Estatus', 'Comprobantes']}

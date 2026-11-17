@@ -28,10 +28,14 @@ export const reactivarAlumno = (numeroControl) =>
 /** Libera la lengua extranjera (incluye curso intensivo; coordinación confirma pago y aprobación). */
 export const liberarIdioma = (numeroControl, forma, detalle) =>
   api.post(`/alumnos/${encodeURIComponent(numeroControl)}/liberacion`, { forma, detalle }).then((r) => r.data);
-/** Carga masiva de alumnos desde un archivo Excel. */
-export const cargarAlumnosExcel = (archivo) => {
+/**
+ * Carga masiva de alumnos desde un archivo Excel (concentrado histórico o plantilla completa). La matrícula de
+ * control escolar es opcional y completa semestre, sexo, correo y lengua indígena.
+ */
+export const cargarAlumnosExcel = (archivo, matricula) => {
   const datos = new FormData();
   datos.append('archivo', archivo);
+  if (matricula) datos.append('matricula', matricula);
   return api.post('/alumnos/carga', datos, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data);
 };
 /** Completa únicamente campos vacíos de alumnos, facilitadores, grupos y horarios existentes. */

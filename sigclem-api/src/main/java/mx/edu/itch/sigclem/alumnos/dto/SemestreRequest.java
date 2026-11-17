@@ -8,5 +8,5 @@ import jakarta.validation.constraints.NotNull;
 public record SemestreRequest(
         @NotNull(message = "Indica el semestre que cursas")
         @Min(value = 1, message = "El semestre debe estar entre 1 y 12")
-        @Max(value = 12, message = "El semestre debe estar entre 1 y 12") Integer semestre) {
+        @Max(value = 15, message = "El semestre debe estar entre 1 y 15") Integer semestre) {
 }

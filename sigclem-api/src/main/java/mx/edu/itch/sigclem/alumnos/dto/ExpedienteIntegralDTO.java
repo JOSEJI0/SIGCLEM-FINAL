@@ -17,5 +17,7 @@ public record ExpedienteIntegralDTO(
         List<ExamenDTO> examenes,
         List<EvaluacionDiagnosticaDTO> diagnosticos,
         List<ConstanciaDTO> constancias,
-        List<RegistroLenguaDTO> lenguasMaternas) {
+        List<RegistroLenguaDTO> lenguasMaternas,
+        /** Niveles cursados antes del sistema, según el concentrado histórico importado. */
+        List<HistorialAcademicoDTO> historialAnterior) {
 }

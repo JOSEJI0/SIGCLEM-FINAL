@@ -56,6 +56,8 @@ class AlumnoServiceTest {
     private InscripcionRepository inscripcionRepository;
     @Mock
     private mx.edu.itch.sigclem.catalogos.repository.PeriodoRepository periodoRepository;
+    @Mock
+    private mx.edu.itch.sigclem.alumnos.repository.HistorialAcademicoRepository historialRepository;
     @InjectMocks
     private AlumnoService service;
 
@@ -116,10 +118,11 @@ class AlumnoServiceTest {
     }
 
     @Test
-    void elSemestreDebeEstarEntreUnoYDoce() {
+    void elSemestreDebeEstarEntreUnoYQuince() {
+        // La matrícula real incluye alumnos en los semestres 13 a 15.
         org.junit.jupiter.api.Assertions.assertThrows(
                 mx.edu.itch.sigclem.comun.excepcion.DatosInvalidosException.class,
-                () -> service.actualizarSemestre("A12345678", 13));
+                () -> service.actualizarSemestre("A12345678", 16));
     }
 
     @Test

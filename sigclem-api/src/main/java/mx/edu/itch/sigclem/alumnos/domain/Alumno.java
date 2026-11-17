@@ -53,7 +53,7 @@ public class Alumno {
     @JoinColumn(name = "id_carrera")
     private Carrera carrera;
 
-    @Column(nullable = false)
+    /** Nulo cuando no se conoce (por ejemplo, egresados importados del histórico que ya no están en la matrícula). */
     private Integer semestre;
 
     /** Última vez que el alumno confirmó o actualizó su semestre. */

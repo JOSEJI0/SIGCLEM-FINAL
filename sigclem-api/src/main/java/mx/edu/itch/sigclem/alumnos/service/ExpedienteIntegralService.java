@@ -6,6 +6,8 @@ import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import mx.edu.itch.sigclem.alumnos.dto.ExpedienteDTO;
 import mx.edu.itch.sigclem.alumnos.dto.ExpedienteIntegralDTO;
+import mx.edu.itch.sigclem.alumnos.dto.HistorialAcademicoDTO;
+import mx.edu.itch.sigclem.alumnos.repository.HistorialAcademicoRepository;
 import mx.edu.itch.sigclem.boletas.service.BoletaService;
 import mx.edu.itch.sigclem.constancias.service.ConstanciaService;
 import mx.edu.itch.sigclem.diagnosticos.service.EvaluacionDiagnosticaService;
@@ -29,6 +31,7 @@ public class ExpedienteIntegralService {
     private final EvaluacionDiagnosticaService diagnosticoService;
     private final ConstanciaService constanciaService;
     private final LenguaMaternaService lenguaService;
+    private final HistorialAcademicoRepository historialRepository;
 
     @Transactional(readOnly = true)
     public ExpedienteIntegralDTO obtener(String numeroControl) {
@@ -41,6 +44,7 @@ public class ExpedienteIntegralService {
                 examenService.listar(cuenta, null, null),
                 diagnosticoService.listarPropias(cuenta),
                 constanciaService.listarPropias(cuenta),
-                lenguaService.listarPropios(cuenta));
+                lenguaService.listarPropios(cuenta),
+                historialRepository.findByNumeroControl(cuenta).stream().map(HistorialAcademicoDTO::de).toList());
     }
 }

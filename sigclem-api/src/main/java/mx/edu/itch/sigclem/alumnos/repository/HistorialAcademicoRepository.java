@@ -28,6 +28,9 @@ public interface HistorialAcademicoRepository extends JpaRepository<HistorialAca
             @Param("periodo") String periodo,
             @Param("grupo") String grupo);
 
+    @Query("select h from HistorialAcademico h where h.alumno.numeroControl = :numeroControl order by h.id")
+    java.util.List<HistorialAcademico> findByNumeroControl(@Param("numeroControl") String numeroControl);
+
     // Usamos @Modifying para que haga un DELETE directo en la BD sin cargar los datos en memoria
     @Modifying
     @Query("DELETE FROM HistorialAcademico h WHERE h.alumno.numeroControl = :numeroControl")

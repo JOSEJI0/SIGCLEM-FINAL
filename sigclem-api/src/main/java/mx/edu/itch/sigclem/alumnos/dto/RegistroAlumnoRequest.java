@@ -21,7 +21,7 @@ public record RegistroAlumnoRequest(
         @Size(max = 40) String apellidoMaterno,
         @NotBlank @Pattern(regexp = "[HM]", message = "El sexo debe ser H (hombre) o M (mujer)") String sexo,
         @NotNull Integer idCarrera,
-        @NotNull @Min(1) @Max(12) Integer semestre,
+        @NotNull @Min(1) @Max(15) Integer semestre,
         @Email @Size(max = 80) String correo,
         /** ¿Habla alguna lengua materna (náhuatl, me'phaa, tu'un savi…)? Si se omite, se toma como no. */
         Boolean hablaLenguaMaterna) {

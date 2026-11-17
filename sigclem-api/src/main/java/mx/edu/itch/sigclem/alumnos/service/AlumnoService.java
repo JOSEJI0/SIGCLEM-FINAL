@@ -60,6 +60,7 @@ public class AlumnoService {
     private final PasswordEncoder passwordEncoder;
     private final InscripcionRepository inscripcionRepository;
     private final PeriodoRepository periodoRepository;
+    private final mx.edu.itch.sigclem.alumnos.repository.HistorialAcademicoRepository historialRepository;
 
     /**
      * CU-16/CU-21: consulta paginada para coordinación y supervisión con filtros independientes por carrera,
@@ -97,7 +98,7 @@ public class AlumnoService {
                 })
                 .filter(dto -> "Todos".equalsIgnoreCase(estatusFiltro) || dto.estatus().equalsIgnoreCase(estatusFiltro))
                 .filter(dto -> nivel == null || dto.numeroNivelActual().equals(nivel))
-                .filter(dto -> semestre == null || dto.semestre().equals(semestre))
+                .filter(dto -> semestre == null || semestre.equals(dto.semestre()))
                 .filter(dto -> {
                     if (formaLiberacion == null || formaLiberacion.isBlank() || "Todas".equalsIgnoreCase(formaLiberacion.trim())) {
                         return true;
@@ -201,7 +202,7 @@ public class AlumnoService {
                 .map(AvanceNivel::getOrigen)
                 .filter(java.util.Objects::nonNull)
                 .collect(Collectors.toSet());
-        for (String forma : List.of("Examen global", "Lengua materna")) {
+        for (String forma : List.of("Examen global", "Lengua materna", ImportacionConcentradoService.ORIGEN_LIBERADO)) {
             if (origenes.contains(forma)) return forma;
         }
         for (String origen : origenes) {
@@ -300,8 +301,8 @@ public class AlumnoService {
      */
     @Transactional
     public ExpedienteDTO actualizarSemestre(String numeroControl, Integer semestre) {
-        if (semestre == null || semestre < 1 || semestre > 12) {
-            throw new DatosInvalidosException("ALUM-010", "El semestre debe estar entre 1 y 12.");
+        if (semestre == null || semestre < 1 || semestre > 15) {
+            throw new DatosInvalidosException("ALUM-010", "El semestre debe estar entre 1 y 15.");
         }
         Alumno alumno = alumnoRepository.findConCarreraByNumeroControl(numeroControl)
                 .orElseThrow(() -> new RecursoNoEncontradoException("ALUM-003",
@@ -340,6 +341,12 @@ public class AlumnoService {
                                 i.getCalificacionSecundaria());
                     }
                 });
+        // Niveles del concentrado histórico: su calificación se muestra si el nivel no tiene un acta en el sistema.
+        Map<String, Integer> idPorNombre = niveles.stream().collect(Collectors.toMap(Nivel::getNombre, Nivel::getId));
+        historialRepository.findByNumeroControl(numeroControl).stream()
+                .filter(h -> h.getCalificacion() != null && idPorNombre.containsKey(h.getNivel()))
+                .forEach(h -> calificacionPorNivel.merge(idPorNombre.get(h.getNivel()),
+                        (int) Math.round(h.getCalificacion()), (actual, historica) -> actual));
 
         return niveles.stream().map(n -> {
             AvanceNivel a = porNivel.get(n.getId());

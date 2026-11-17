@@ -6,7 +6,7 @@ import { mensajeError } from '../../api/cliente';
 import { Alerta, Boton, Cargando, Tarjeta, claseEntrada } from '../../components/ui';
 import AvanceReticular from '../../components/AvanceReticular';
 
-const SEMESTRES = Array.from({ length: 12 }, (_, i) => i + 1);
+const SEMESTRES = Array.from({ length: 15 }, (_, i) => i + 1);
 
 function fecha(iso) {
   return iso ? new Date(`${iso}T00:00:00`).toLocaleDateString('es-MX') : '—';

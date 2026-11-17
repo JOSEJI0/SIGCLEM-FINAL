@@ -22,6 +22,6 @@ public record ExpedienteDTO(
         String estatus,
         String motivoBaja,
         LocalDate fechaBaja,
-        /** Cómo liberó la lengua extranjera (incluye curso intensivo); nulo si aún no la libera. */
+        /** Cómo liberó la lengua extranjera; nulo si aún no la libera. */
         String formaLiberacion) {
 }

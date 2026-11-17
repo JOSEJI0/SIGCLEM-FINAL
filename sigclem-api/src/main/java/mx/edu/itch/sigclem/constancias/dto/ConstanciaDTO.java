@@ -18,7 +18,9 @@ public record ConstanciaDTO(
         Integer totalHoras,
         String nivelMcer,
         String estatus,
-        String motivoRechazo) {
+        String motivoRechazo,
+        String sexo,
+        boolean tieneArchivoWord) {
 
     public static ConstanciaDTO desde(Constancia constancia) {
         var alumno = constancia.getAlumno();
@@ -36,6 +38,8 @@ public record ConstanciaDTO(
                 constancia.getTotalHoras(),
                 constancia.getNivelMcer(),
                 constancia.getEstatus(),
-                constancia.getMotivoRechazo());
+                constancia.getMotivoRechazo(),
+                alumno.getSexo(),
+                constancia.getArchivoWord() != null);
     }
 }

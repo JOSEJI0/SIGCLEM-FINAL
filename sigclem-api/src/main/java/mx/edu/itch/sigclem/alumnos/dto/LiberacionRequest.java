@@ -5,7 +5,7 @@ import jakarta.validation.constraints.Size;
 
 /**
  * Libera la lengua extranjera de un alumno por una forma distinta a completar los diez niveles.
- * {@code forma}: «Examen global», «Curso intensivo», «Lengua materna» u otra forma confirmada por coordinación.
+ * {@code forma}: «Examen global», «Lengua materna» u otra forma confirmada por coordinación.
  * {@code detalle}: referencia opcional (folio, fecha…).
  */
 public record LiberacionRequest(

@@ -43,11 +43,23 @@ public class Inscripcion {
     @Column(name = "id_autorizacion", unique = true)
     private Integer idAutorizacion;
 
+    @Column(name = "id_comprobante_secundario", unique = true)
+    private Integer idComprobanteSecundario;
+
+    @Column(name = "id_autorizacion_secundaria", unique = true)
+    private Integer idAutorizacionSecundaria;
+
     @Column(nullable = false, length = 2)
     private String oportunidad = "01";
 
     @Column(name = "calificacion_final")
     private Integer calificacionFinal;
+
+    @Column(name = "calificacion_secundaria")
+    private Integer calificacionSecundaria;
+
+    @Column(name = "avance_pendiente_secundario", nullable = false)
+    private boolean avancePendienteSecundario;
 
     /** Nivel seleccionado por coordinación al cerrar el acta de un curso Intensivo. */
     @ManyToOne(fetch = FetchType.LAZY)

@@ -19,7 +19,10 @@ public record RegistroLenguaDTO(
         boolean tieneDomicilio,
         boolean tieneIne,
         boolean tieneIntercultural,
-        boolean tieneConstancia) {
+        boolean tieneConstancia,
+        String folioConstancia,
+        String documentoRechazado,
+        String motivoRechazo) {
 
     public static RegistroLenguaDTO desde(RegistroLenguaMaterna registro) {
         return new RegistroLenguaDTO(
@@ -37,6 +40,9 @@ public record RegistroLenguaDTO(
                 registro.getDocumentoDomicilio() != null,
                 registro.getDocumentoIne() != null,
                 registro.getDocumentoIntercultural() != null,
-                registro.getConstanciaAcreditacion() != null);
+                registro.getConstanciaWord() != null || registro.getConstanciaAcreditacion() != null,
+                registro.getFolioConstancia(),
+                registro.getDocumentoRechazado(),
+                registro.getMotivoRechazo());
     }
 }

@@ -58,8 +58,20 @@ public class RegistroLenguaMaterna {
     @Column(name = "constancia_acreditacion", length = 255)
     private String constanciaAcreditacion;
 
+    @Column(name = "folio_constancia", length = 20, unique = true)
+    private String folioConstancia;
+
+    @Column(name = "constancia_word", length = 255)
+    private String constanciaWord;
+
     @Column(nullable = false, length = 10)
     private String estatus = "Pendiente";
+
+    @Column(name = "documento_rechazado", length = 20)
+    private String documentoRechazado;
+
+    @Column(name = "motivo_rechazo", length = 500)
+    private String motivoRechazo;
 
     @Column(name = "fecha_registro", nullable = false)
     private LocalDate fechaRegistro;

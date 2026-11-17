@@ -550,6 +550,7 @@ export default function Pagos({ soloLectura = false }) {
               grupo.idPeriodo === comprobante.idPeriodo
               && grupo.idNivel === comprobante.idNivel
               && grupo.estatusActa !== 'Cerrada'
+              && grupo.cupo != null
               && grupo.alumnosInscritos < grupo.cupo);
             const datos = { ...datosManualesVacios(), ...datosManuales[comprobante.id] };
             return (
@@ -618,7 +619,7 @@ export default function Pagos({ soloLectura = false }) {
                       <select className={claseEntrada} id={`grupo-${comprobante.id}`} required value={idGrupo[comprobante.id] || ''} onChange={(e) => setIdGrupo((previos) => ({ ...previos, [comprobante.id]: e.target.value }))}>
                         <option value="">Selecciona un grupo compatible</option>
                         {gruposElegibles.map((grupo) => (
-                          <option key={grupo.id} value={grupo.id}>{grupo.clave} · {grupo.intensivo ? 'Intensivo' : grupo.nivel} · {grupo.modalidad} · {grupo.alumnosInscritos}/{grupo.cupo}</option>
+                          <option key={grupo.id} value={grupo.id}>{grupo.clave} · {grupo.intensivo ? 'Intensivo · 10 niveles' : [grupo.nivel, grupo.nivelSecundario].filter(Boolean).join(' + ')} · {grupo.modalidad} · {grupo.alumnosInscritos}/{grupo.cupo}</option>
                         ))}
                       </select>
                     </Campo>

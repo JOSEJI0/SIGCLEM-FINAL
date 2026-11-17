@@ -15,5 +15,7 @@ public record ReporteAcademicoDTO(
         int acreditados,
         int noAcreditados,
         List<ReporteNivelDTO> porNivel,
-        List<ReporteCarreraNivelDTO> porCarreraYNivel) {
+        List<ReporteCarreraNivelDTO> porCarreraYNivel,
+        List<ReporteGrupoDTO> porGrupo,
+        List<ReporteLenguaMaternaDTO> alumnosLenguaMaterna) {
 }

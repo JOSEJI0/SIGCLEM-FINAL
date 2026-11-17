@@ -64,7 +64,7 @@ public class AuthController {
         UsuarioAutenticado u = (UsuarioAutenticado) auth.getPrincipal();
         auditoria.registrarDe(u.getUsername(), u.rol().name(), AccionAuditoria.INICIO_SESION, RegistroAuditoria.OK, null);
         return new AuthResponse(jwtService.generarToken(u), "Bearer", jwtService.getExpiracionSegundos(),
-                perfilService.perfil(u));
+                perfilService.perfil(u), u.requiereCambioContrasena());
     }
 
     @Operation(summary = "Perfil del usuario actual", description = "Rol: [Cualquier usuario]")

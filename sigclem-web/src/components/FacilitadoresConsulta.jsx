@@ -46,7 +46,7 @@ export function GruposDeFacilitador({ facilitador, onCerrar }) {
   const vigentes = (grupos || []).filter((g) => g.fechaFinPeriodo >= hoy());
   const sesiones = vigentes.flatMap((g) => g.horarios.map((h, i) => ({
     clave: `${g.id}-${i}`, dia: h.diaSemana, inicio: h.horaInicio, fin: h.horaFin,
-    titulo: `${g.intensivo ? 'Intensivo' : g.nivel} ${g.clave}`, detalle: g.aula, color: colorNivel(g.nivelNumero),
+    titulo: `${g.intensivo ? 'Intensivo · 10 niveles' : [g.nivel, g.nivelSecundario].filter(Boolean).join(' + ')} ${g.clave}`, detalle: g.aula, color: colorNivel(g.nivelNumero),
   })));
 
   return (
@@ -69,10 +69,10 @@ export function GruposDeFacilitador({ facilitador, onCerrar }) {
                   {grupos.map((g) => (
                     <tr key={g.id} className="border-b border-linea last:border-0">
                       <td className="px-2 py-2.5">{g.periodo}</td>
-                      <td className="px-2 py-2.5 font-semibold">{g.intensivo ? 'Intensivo' : g.nivel} · {g.clave}</td>
+                      <td className="px-2 py-2.5 font-semibold">{g.intensivo ? 'Intensivo · 10 niveles' : [g.nivel, g.nivelSecundario].filter(Boolean).join(' + ')} · {g.clave}</td>
                       <td className="px-2 py-2.5">{g.horarios.map((h) => `${DIAS[h.diaSemana - 1].slice(0, 3)} ${horaCorta(h.horaInicio)}–${horaCorta(h.horaFin)}`).join(', ')}</td>
                       <td className="px-2 py-2.5">{g.aula}</td>
-                      <td className="px-2 py-2.5">{g.alumnosInscritos}/{g.cupo}</td>
+                      <td className="px-2 py-2.5">{g.alumnosInscritos}/{g.cupo ?? 'Pendiente'}</td>
                       <td className="px-2 py-2.5"><Insignia estatus={g.estatusActa === 'Cerrada' ? 'Concluido' : 'Programado'}>{g.estatusActa}</Insignia></td>
                     </tr>
                   ))}

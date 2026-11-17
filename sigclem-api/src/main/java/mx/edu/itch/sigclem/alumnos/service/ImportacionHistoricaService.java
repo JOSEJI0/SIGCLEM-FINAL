@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import jakarta.validation.Validator;
@@ -34,6 +35,7 @@ import mx.edu.itch.sigclem.alumnos.domain.EstatusAvance;
 import mx.edu.itch.sigclem.alumnos.domain.HistorialAcademico;
 import mx.edu.itch.sigclem.alumnos.dto.RegistroAlumnoRequest;
 import mx.edu.itch.sigclem.alumnos.dto.ResultadoCargaDTO;
+import mx.edu.itch.sigclem.alumnos.dto.ResultadoCompletarDatosDTO;
 import mx.edu.itch.sigclem.alumnos.dto.ResultadoCargaDTO.FilaConError;
 import mx.edu.itch.sigclem.alumnos.repository.AlumnoRepository;
 import mx.edu.itch.sigclem.alumnos.repository.AvanceNivelRepository;
@@ -56,6 +58,7 @@ import mx.edu.itch.sigclem.grupos.domain.Horario;
 import mx.edu.itch.sigclem.grupos.domain.Inscripcion;
 import mx.edu.itch.sigclem.grupos.repository.GrupoRepository;
 import mx.edu.itch.sigclem.grupos.repository.InscripcionRepository;
+import mx.edu.itch.sigclem.grupos.repository.HorarioRepository;
 
 @Service
 @RequiredArgsConstructor
@@ -90,6 +93,7 @@ public class ImportacionHistoricaService {
     private final HistorialAcademicoRepository historialRepository;
     private final CarreraRepository carreraRepository;
     private final GrupoRepository grupoRepository;
+    private final HorarioRepository horarioRepository;
     private final InscripcionRepository inscripcionRepository;
     private final PeriodoRepository periodoRepository;
     private final NivelRepository nivelRepository;
@@ -111,7 +115,7 @@ public class ImportacionHistoricaService {
             instrucciones.createRow(2).createCell(0).setCellValue(
                     "El libro contiene los grupos con acta cerrada y sus inscripciones que ya existen en SIGCLEM.");
             instrucciones.createRow(3).createCell(0).setCellValue(
-                    "Se puede volver a importar sin borrar datos: los grupos e inscripciones se identifican por sus claves.");
+                    "Para completar campos vacíos de alumnos, grupos y horarios existentes, usa la opción «Completar datos existentes».");
             instrucciones.createRow(4).createCell(0).setCellValue(
                     "Para agregar registros, completa las hojas Alumnos, Grupos, Inscripciones y Horarios.");
             instrucciones.createRow(5).createCell(0).setCellValue(
@@ -121,7 +125,7 @@ public class ImportacionHistoricaService {
             instrucciones.createRow(7).createCell(0).setCellValue(
                     "No elimines ni cambies las claves de grupos ya exportados; los campos de alumnos existentes no se sobrescriben.");
             instrucciones.createRow(8).createCell(0).setCellValue(
-                    "Para grupos Intensivos marca «Sí» en Curso Intensivo y captura el nivel acreditado de cada alumno en Inscripciones.");
+                    "Para grupos Intensivos marca «Sí» en Curso Intensivo. El nivel acreditado puede completarse después.");
             instrucciones.createRow(9).createCell(0).setCellValue(
                     "Las dos columnas nuevas son opcionales al importar plantillas antiguas; no borres las columnas existentes.");
             instrucciones.setColumnWidth(0, 15000);
@@ -217,7 +221,268 @@ public class ImportacionHistoricaService {
         }
     }
 
-    @Transactional
+    public ResultadoCompletarDatosDTO completarExistentes(Workbook libro) {
+        Sheet hojaAlumnos = libro.getSheet("Alumnos");
+        Sheet hojaGrupos = libro.getSheet("Grupos");
+        Sheet hojaHorarios = libro.getSheet("Horarios");
+        if (hojaAlumnos == null || hojaGrupos == null || hojaHorarios == null) {
+            throw new DatosInvalidosException("ALUM-025",
+                    "Para completar datos existentes, el Excel debe incluir las hojas Alumnos, Grupos y Horarios.");
+        }
+
+        DataFormatter formatter = new DataFormatter(new Locale("es", "MX"));
+        validarEncabezados(hojaAlumnos, ALUMNOS, formatter);
+        validarEncabezados(hojaGrupos, java.util.Arrays.copyOf(GRUPOS, GRUPOS.length - 1), formatter);
+        validarEncabezadoOpcional(hojaGrupos, GRUPOS.length - 1, GRUPOS[GRUPOS.length - 1], formatter);
+        validarEncabezados(hojaHorarios, HORARIOS, formatter);
+
+        Map<String, Nivel> niveles = indexarNiveles();
+        Map<String, Modalidad> modalidades = modalidadRepository.findAll().stream()
+                .collect(java.util.stream.Collectors.toMap(m -> clave(m.getNombre()), m -> m, (a, b) -> a));
+        Map<String, Aula> aulas = aulaRepository.findAll().stream()
+                .collect(java.util.stream.Collectors.toMap(a -> clave(a.getNombre()), a -> a, (a, b) -> a));
+        Map<String, Facilitador> facilitadoresPorCorreo = new HashMap<>();
+        Map<String, List<Facilitador>> facilitadoresPorNombre = new HashMap<>();
+        facilitadorRepository.findAll().forEach(f -> {
+            if (f.getCorreo() != null && !f.getCorreo().isBlank()) {
+                facilitadoresPorCorreo.put(clave(f.getCorreo()), f);
+            }
+            facilitadoresPorNombre.computeIfAbsent(clave(f.nombreCompleto()), k -> new ArrayList<>()).add(f);
+        });
+        Map<ClaveGrupo, Grupo> grupos = new HashMap<>();
+        grupoRepository.findAllConDatosHistoricos().forEach(g -> grupos.put(ClaveGrupo.de(g), g));
+
+        List<FilaConError> errores = new ArrayList<>();
+        Set<Integer> facilitadoresActualizados = new HashSet<>();
+        int filas = 0;
+        int camposCompletados = 0;
+        int alumnosActualizados = 0;
+        int gruposActualizados = 0;
+        int horariosAgregados = 0;
+
+        for (int i = 1; i <= hojaAlumnos.getLastRowNum(); i++) {
+            Row row = hojaAlumnos.getRow(i);
+            if (vacia(row, formatter)) continue;
+            filas++;
+            String numeroControl = texto(row, 0, formatter).toUpperCase(Locale.ROOT);
+            try {
+                if (!numeroControl.matches("[A-Z0-9]{1,10}")) {
+                    throw new IllegalArgumentException("El número de control debe tener de 1 a 10 letras mayúsculas o dígitos.");
+                }
+                Alumno alumno = alumnoRepository.findConCarreraByNumeroControl(numeroControl)
+                        .orElseThrow(() -> new IllegalArgumentException(
+                                "El alumno no existe; esta opción solo completa registros existentes."));
+
+                String apellidoMaterno = texto(row, 3, formatter);
+                String sexo = texto(row, 4, formatter).toUpperCase(Locale.ROOT);
+                String correo = texto(row, 7, formatter);
+                boolean completaApellido = (alumno.getApellidoMaterno() == null || alumno.getApellidoMaterno().isBlank())
+                        && !apellidoMaterno.isBlank();
+                boolean completaSexo = (alumno.getSexo() == null || alumno.getSexo().isBlank()) && !sexo.isBlank();
+                boolean completaCorreo = (alumno.getCorreo() == null || alumno.getCorreo().isBlank()) && !correo.isBlank();
+                if (completaApellido) validarLongitud(apellidoMaterno, 40, "Apellido materno");
+                if (completaSexo && !sexo.equals("H") && !sexo.equals("M")) {
+                    throw new IllegalArgumentException("El sexo debe ser H o M.");
+                }
+                if (completaCorreo) validarLongitud(correo, 80, "Correo");
+
+                int campos = (completaApellido ? 1 : 0) + (completaSexo ? 1 : 0) + (completaCorreo ? 1 : 0);
+                if (campos > 0) {
+                    if (completaApellido) alumno.setApellidoMaterno(apellidoMaterno);
+                    if (completaSexo) alumno.setSexo(sexo);
+                    if (completaCorreo) alumno.setCorreo(correo);
+                    alumnoRepository.save(alumno);
+                    alumnosActualizados++;
+                    camposCompletados += campos;
+                }
+            } catch (RuntimeException e) {
+                errores.add(error("Alumnos", i + 1, numeroControl, e));
+            }
+        }
+
+        for (int i = 1; i <= hojaGrupos.getLastRowNum(); i++) {
+            Row row = hojaGrupos.getRow(i);
+            if (vacia(row, formatter)) continue;
+            filas++;
+            try {
+                String periodo = textoObligatorio(row, 0, formatter, "Periodo");
+                Nivel nivel = resolverNivel(niveles, textoObligatorio(row, 3, formatter, "Nivel"));
+                Modalidad modalidad = modalidades.get(clave(textoObligatorio(row, 4, formatter, "Modalidad")));
+                if (modalidad == null) throw new IllegalArgumentException("La modalidad no existe en el catálogo.");
+                String claveGrupo = textoObligatorio(row, 5, formatter, "Clave de grupo").toUpperCase(Locale.ROOT);
+                ClaveGrupo key = new ClaveGrupo(clave(periodo), nivel.getId(), modalidad.getId(), claveGrupo);
+                Grupo grupo = grupos.get(key);
+                if (grupo == null) {
+                    throw new IllegalArgumentException("El grupo no existe; esta opción no crea grupos.");
+                }
+
+                String referencia = texto(row, 14, formatter);
+                Integer cupo = enteroOpcional(row, 9, formatter, "Cupo");
+                if (cupo != null && (cupo < 1 || cupo > 255)) {
+                    throw new IllegalArgumentException("El cupo debe estar entre 1 y 255.");
+                }
+                String fechaCierre = texto(row, 11, formatter);
+                String cerradaPor = texto(row, 12, formatter);
+                String observacion = texto(row, 13, formatter);
+                String correoFacilitador = texto(row, 6, formatter);
+                String nombreFacilitador = texto(row, 7, formatter);
+                String nombreAula = texto(row, 8, formatter);
+
+                boolean completaReferencia = (grupo.getReferenciaHistorica() == null
+                        || grupo.getReferenciaHistorica().isBlank()) && !referencia.isBlank();
+                boolean completaCupo = grupo.getCupo() == null && cupo != null;
+                boolean completaFechaCierre = grupo.getFechaCierreActa() == null && !fechaCierre.isBlank();
+                boolean completaCerradaPor = (grupo.getCerradaPor() == null || grupo.getCerradaPor().isBlank())
+                        && !cerradaPor.isBlank();
+                boolean completaObservacion = (grupo.getObservacionCierre() == null
+                        || grupo.getObservacionCierre().isBlank()) && !observacion.isBlank();
+                if (completaReferencia) validarLongitud(referencia, 255, "Grupo original (referencia)");
+                if (completaCupo && (cupo < 1 || cupo > 255)) {
+                    throw new IllegalArgumentException("El cupo debe estar entre 1 y 255.");
+                }
+                LocalDate cierre = completaFechaCierre ? fecha(fechaCierre, "Fecha de cierre") : null;
+                if (completaCerradaPor) validarLongitud(cerradaPor, 12, "Cerrada por");
+                if (completaObservacion) validarLongitud(observacion, 500, "Observación de cierre");
+
+                Facilitador facilitador = grupo.getFacilitador();
+                if (facilitador != null && !nombreFacilitador.isBlank()
+                        && !clave(facilitador.nombreCompleto()).equals(clave(nombreFacilitador))) {
+                    throw new IllegalArgumentException(
+                            "El facilitador del Excel no coincide con el asignado al grupo; no se reasignó.");
+                }
+                if (facilitador == null && (!correoFacilitador.isBlank() || !nombreFacilitador.isBlank())) {
+                    facilitador = resolverFacilitadorExistente(
+                            correoFacilitador, nombreFacilitador, facilitadoresPorCorreo, facilitadoresPorNombre);
+                }
+                boolean completaCorreoFacilitador = facilitador != null
+                        && (facilitador.getCorreo() == null || facilitador.getCorreo().isBlank())
+                        && !correoFacilitador.isBlank();
+                if (completaCorreoFacilitador) {
+                    validarLongitud(correoFacilitador, 80, "Correo del facilitador");
+                    Facilitador correoEnUso = facilitadorRepository.findByCorreoIgnoreCase(correoFacilitador)
+                            .orElse(null);
+                    if (correoEnUso != null && !Objects.equals(correoEnUso.getId(), facilitador.getId())) {
+                        throw new IllegalArgumentException("El correo del facilitador ya pertenece a otra cuenta.");
+                    }
+                }
+
+                Aula aula = grupo.getAula();
+                if (aula == null && !nombreAula.isBlank()) {
+                    aula = aulas.get(clave(nombreAula));
+                    if (aula == null) throw new IllegalArgumentException("El aula no existe en el catálogo.");
+                }
+
+                int campos = 0;
+                if (completaReferencia) {
+                    grupo.setReferenciaHistorica(referencia);
+                    campos++;
+                }
+                if (completaCupo) {
+                    grupo.setCupo(cupo);
+                    campos++;
+                }
+                if (completaFechaCierre) {
+                    grupo.setFechaCierreActa(cierre);
+                    campos++;
+                }
+                if (completaCerradaPor) {
+                    grupo.setCerradaPor(cerradaPor);
+                    campos++;
+                }
+                if (completaObservacion) {
+                    grupo.setObservacionCierre(observacion);
+                    campos++;
+                }
+                if (grupo.getFacilitador() == null && facilitador != null) {
+                    grupo.setFacilitador(facilitador);
+                    campos++;
+                }
+                if (grupo.getAula() == null && aula != null) {
+                    grupo.setAula(aula);
+                    campos++;
+                }
+                if (completaCorreoFacilitador) {
+                    facilitador.setCorreo(correoFacilitador);
+                    facilitadorRepository.save(facilitador);
+                    facilitadoresActualizados.add(facilitador.getId());
+                    campos++;
+                }
+                if (campos > 0) {
+                    grupoRepository.save(grupo);
+                    gruposActualizados++;
+                    camposCompletados += campos;
+                }
+            } catch (RuntimeException e) {
+                errores.add(error("Grupos", i + 1, "", e));
+            }
+        }
+
+        for (int i = 1; i <= hojaHorarios.getLastRowNum(); i++) {
+            Row row = hojaHorarios.getRow(i);
+            if (vacia(row, formatter)) continue;
+            filas++;
+            try {
+                String periodo = textoObligatorio(row, 0, formatter, "Periodo");
+                Nivel nivel = resolverNivel(niveles, textoObligatorio(row, 1, formatter, "Nivel"));
+                Modalidad modalidad = modalidades.get(clave(textoObligatorio(row, 2, formatter, "Modalidad")));
+                if (modalidad == null) throw new IllegalArgumentException("La modalidad no existe en el catálogo.");
+                String claveGrupo = textoObligatorio(row, 3, formatter, "Clave de grupo").toUpperCase(Locale.ROOT);
+                ClaveGrupo key = new ClaveGrupo(clave(periodo), nivel.getId(), modalidad.getId(), claveGrupo);
+                Grupo grupo = grupos.get(key);
+                if (grupo == null) throw new IllegalArgumentException("No existe el grupo indicado en la hoja Grupos.");
+
+                int dia = enteroObligatorio(row, 4, formatter, "Día");
+                if (dia < 1 || dia > 6) throw new IllegalArgumentException("El día debe estar entre 1 y 6.");
+                LocalTime inicio = hora(row, 5, formatter, "Hora inicio");
+                LocalTime fin = hora(row, 6, formatter, "Hora fin");
+                if (!inicio.isBefore(fin)) throw new IllegalArgumentException("La hora de fin debe ser posterior a la de inicio.");
+                boolean exacto = grupo.getHorarios().stream().anyMatch(h -> h.getDiaSemana() == dia
+                        && h.getHoraInicio().equals(inicio) && h.getHoraFin().equals(fin));
+                if (exacto) continue;
+                boolean traslape = grupo.getHorarios().stream().anyMatch(h -> h.getDiaSemana() == dia
+                        && inicio.isBefore(h.getHoraFin()) && h.getHoraInicio().isBefore(fin));
+                if (traslape) {
+                    throw new IllegalArgumentException("El horario se traslapa con otro horario del mismo grupo.");
+                }
+                List<Horario> conflictos = horarioRepository.buscarTraslape(dia, inicio, fin,
+                        grupo.getPeriodo().getId(), grupo.getFacilitador().getId(),
+                        grupo.getAula().getId(), !grupo.isIntensivo(), grupo.getId());
+                if (!conflictos.isEmpty()) {
+                    throw new IllegalArgumentException("El horario se traslapa con otro grupo del mismo periodo "
+                            + "para el facilitador o el aula.");
+                }
+                Horario horario = new Horario();
+                horario.setDiaSemana(dia);
+                horario.setHoraInicio(inicio);
+                horario.setHoraFin(fin);
+                grupo.agregarHorario(horario);
+                grupoRepository.save(grupo);
+                horariosAgregados++;
+                camposCompletados++;
+            } catch (RuntimeException e) {
+                errores.add(error("Horarios", i + 1, "", e));
+            }
+        }
+
+        if (filas == 0) {
+            throw new DatosInvalidosException("ALUM-023", "El archivo no contiene datos para completar.");
+        }
+        return new ResultadoCompletarDatosDTO(filas, camposCompletados, alumnosActualizados,
+                facilitadoresActualizados.size(), gruposActualizados, horariosAgregados, errores);
+    }
+
+    private Facilitador resolverFacilitadorExistente(String correo, String nombre,
+            Map<String, Facilitador> facilitadoresPorCorreo, Map<String, List<Facilitador>> facilitadoresPorNombre) {
+        Facilitador facilitador = correo.isBlank() ? null : facilitadoresPorCorreo.get(clave(correo));
+        if (facilitador != null) return facilitador;
+        List<Facilitador> coincidencias = nombre.isBlank()
+                ? List.of() : facilitadoresPorNombre.getOrDefault(clave(nombre), List.of());
+        if (coincidencias.size() != 1) {
+            throw new IllegalArgumentException("No se encontró un facilitador único existente por correo o nombre.");
+        }
+        return coincidencias.getFirst();
+    }
+
     public ResultadoCargaDTO importar(Workbook libro) {
         Sheet hojaAlumnos = libro.getSheet("Alumnos");
         Sheet hojaGrupos = libro.getSheet("Grupos");
@@ -327,7 +592,7 @@ public class ImportacionHistoricaService {
                 if (alumno == null) alumno = alumnoRepository.findConCarreraByNumeroControl(numeroControl).orElse(null);
                 if (alumno == null) throw new IllegalArgumentException("El alumno no existe o su fila tiene errores.");
                 String nivel = textoObligatorio(row, 1, formatter, "Nivel");
-                String periodo = textoObligatorio(row, 2, formatter, "Periodo");
+                String periodo = texto(row, 2, formatter);
                 String grupo = texto(row, 4, formatter);
                 Double calificacion = decimalOpcional(row, 7, formatter);
                 validarLongitud(nivel, 50, "Nivel");
@@ -339,17 +604,29 @@ public class ImportacionHistoricaService {
                 validarLongitud(texto(row, 8, formatter), 500, "Observación");
                 List<HistorialAcademico> existentes = historialRepository.buscarPorClaveHistorica(
                         numeroControl, nivel, periodo, grupo);
-                HistorialAcademico historial = existentes.isEmpty()
-                        ? new HistorialAcademico() : existentes.getFirst();
+                boolean nuevo = existentes.isEmpty();
+                HistorialAcademico historial = nuevo ? new HistorialAcademico() : existentes.getFirst();
                 historial.setAlumno(alumno);
-                historial.setNivel(nivel);
-                historial.setPeriodo(periodo);
-                historial.setFacilitador(texto(row, 3, formatter));
-                historial.setGrupo(grupo);
-                historial.setHorario(texto(row, 5, formatter));
-                historial.setAula(texto(row, 6, formatter));
-                historial.setCalificacion(calificacion);
-                historial.setObservacionHistorica(texto(row, 8, formatter));
+                if (nuevo || historial.getNivel() == null || historial.getNivel().isBlank()) historial.setNivel(nivel);
+                if (nuevo || historial.getPeriodo() == null || historial.getPeriodo().isBlank()) historial.setPeriodo(periodo);
+                String facilitador = texto(row, 3, formatter);
+                if ((nuevo || historial.getFacilitador() == null || historial.getFacilitador().isBlank())
+                        && !facilitador.isBlank()) historial.setFacilitador(facilitador);
+                if (nuevo || historial.getGrupo() == null || historial.getGrupo().isBlank()) historial.setGrupo(grupo);
+                String horario = texto(row, 5, formatter);
+                if ((nuevo || historial.getHorario() == null || historial.getHorario().isBlank())
+                        && !horario.isBlank()) historial.setHorario(horario);
+                String aula = texto(row, 6, formatter);
+                if ((nuevo || historial.getAula() == null || historial.getAula().isBlank())
+                        && !aula.isBlank()) historial.setAula(aula);
+                if ((nuevo || historial.getCalificacion() == null) && calificacion != null) {
+                    historial.setCalificacion(calificacion);
+                }
+                String observacion = texto(row, 8, formatter);
+                if ((nuevo || historial.getObservacionHistorica() == null
+                        || historial.getObservacionHistorica().isBlank()) && !observacion.isBlank()) {
+                    historial.setObservacionHistorica(observacion);
+                }
                 historialRepository.save(historial);
                 historialImportado++;
             } catch (RuntimeException e) {
@@ -373,14 +650,14 @@ public class ImportacionHistoricaService {
                 }
                 String claveGrupo = textoObligatorio(row, 5, formatter, "Clave de grupo").toUpperCase(Locale.ROOT);
                 if (!claveGrupo.matches("[A-Z]{1,2}")) throw new IllegalArgumentException("La clave debe tener una o dos letras mayúsculas.");
-                int cupo = enteroObligatorio(row, 9, formatter, "Cupo");
-                if (cupo < 1 || cupo > 255) throw new IllegalArgumentException("El cupo debe estar entre 1 y 255.");
+                Integer cupo = enteroOpcional(row, 9, formatter, "Cupo");
                 String referencia = vacioANulo(texto(row, 14, formatter));
                 if (referencia != null && referencia.length() > 255) {
                     throw new IllegalArgumentException("La referencia histórica no puede superar 255 caracteres.");
                 }
                 ClaveGrupo key = new ClaveGrupo(clave(nombrePeriodo), nivel.getId(), modalidad.getId(), claveGrupo);
-                if (!grupos.containsKey(key)) {
+                Grupo grupoExistente = grupos.get(key);
+                if (grupoExistente == null) {
                     String correo = texto(row, 6, formatter);
                     Facilitador facilitador = facilitadoresPorCorreo.get(clave(correo));
                     if (facilitador == null) {
@@ -416,6 +693,8 @@ public class ImportacionHistoricaService {
                     grupo.setIntensivo(intensivo);
                     grupo.setReferenciaHistorica(referencia);
                     grupo.setPeriodo(periodo);
+                    grupo.setFechaInicioCaptura(periodo.getFechaInicio());
+                    grupo.setFechaFinCaptura(periodo.getFechaFin());
                     grupo.setNivel(nivel);
                     grupo.setModalidad(modalidad);
                     grupo.setFacilitador(facilitador);
@@ -425,29 +704,75 @@ public class ImportacionHistoricaService {
                     String fechaCierre = texto(row, 11, formatter);
                     grupo.setFechaCierreActa(fechaCierre.isBlank()
                             ? periodo.getFechaFin() : fecha(fechaCierre, "Fecha de cierre"));
-                    String cerradaPor = texto(row, 12, formatter);
-                    if (cerradaPor.isBlank()) cerradaPor = "Coordinación";
-                    if (!cerradaPor.equals("Coordinación") && !cerradaPor.equals("Facilitador")) {
+                    String cerradaPor = vacioANulo(texto(row, 12, formatter));
+                    if (cerradaPor != null && !cerradaPor.equals("Coordinación")
+                            && !cerradaPor.equals("Facilitador")) {
                         throw new IllegalArgumentException("«Cerrada por» debe ser Coordinación o Facilitador.");
                     }
                     grupo.setCerradaPor(cerradaPor);
                     String observacion = texto(row, 13, formatter);
                     validarLongitud(observacion, 500, "Observación de cierre");
-                    grupo.setObservacionCierre(observacion.isBlank() && "Coordinación".equals(cerradaPor)
-                            ? "Importado como histórico; no se generaron cargos ni comprobantes."
-                            : vacioANulo(observacion));
+                    grupo.setObservacionCierre(vacioANulo(observacion));
                     grupo = grupoRepository.save(grupo);
                     grupos.put(key, grupo);
                 } else {
-                    Grupo grupoExistente = grupos.get(key);
+                    int cambios = 0;
                     if ((grupoExistente.getReferenciaHistorica() == null
                             || grupoExistente.getReferenciaHistorica().isBlank()) && referencia != null) {
-                        if (referencia.length() > 255) {
-                            throw new IllegalArgumentException("La referencia histórica no puede superar 255 caracteres.");
-                        }
+                        validarLongitud(referencia, 255, "Grupo original (referencia)");
                         grupoExistente.setReferenciaHistorica(referencia);
-                        grupoRepository.save(grupoExistente);
+                        cambios++;
                     }
+                    if (grupoExistente.getCupo() == null && cupo != null) {
+                        if (cupo < 1 || cupo > 255) throw new IllegalArgumentException("El cupo debe estar entre 1 y 255.");
+                        grupoExistente.setCupo(cupo);
+                        cambios++;
+                    }
+                    String correo = texto(row, 6, formatter);
+                    Facilitador facilitador = grupoExistente.getFacilitador();
+                    if (facilitador == null && (!correo.isBlank() || !texto(row, 7, formatter).isBlank())) {
+                        facilitador = facilitadoresPorCorreo.get(clave(correo));
+                        if (facilitador == null) {
+                            List<Facilitador> matches = facilitadoresPorNombre.getOrDefault(
+                                    clave(texto(row, 7, formatter)), List.of());
+                            if (matches.size() != 1) {
+                                throw new IllegalArgumentException(
+                                        "No se encontró un facilitador único por correo o nombre.");
+                            }
+                            facilitador = matches.getFirst();
+                        }
+                        grupoExistente.setFacilitador(facilitador);
+                        cambios++;
+                    }
+                    String nombreAula = texto(row, 8, formatter);
+                    if (grupoExistente.getAula() == null && !nombreAula.isBlank()) {
+                        Aula aula = aulas.get(clave(nombreAula));
+                        if (aula == null) throw new IllegalArgumentException("El aula no existe en el catálogo.");
+                        grupoExistente.setAula(aula);
+                        cambios++;
+                    }
+                    String fechaCierre = texto(row, 11, formatter);
+                    if (grupoExistente.getFechaCierreActa() == null && !fechaCierre.isBlank()) {
+                        grupoExistente.setFechaCierreActa(fecha(fechaCierre, "Fecha de cierre"));
+                        cambios++;
+                    }
+                    String cerradaPor = texto(row, 12, formatter);
+                    if ((grupoExistente.getCerradaPor() == null || grupoExistente.getCerradaPor().isBlank())
+                            && !cerradaPor.isBlank()) {
+                        if (!cerradaPor.equals("Coordinación") && !cerradaPor.equals("Facilitador")) {
+                            throw new IllegalArgumentException("«Cerrada por» debe ser Coordinación o Facilitador.");
+                        }
+                        grupoExistente.setCerradaPor(cerradaPor);
+                        cambios++;
+                    }
+                    String observacion = texto(row, 13, formatter);
+                    if ((grupoExistente.getObservacionCierre() == null
+                            || grupoExistente.getObservacionCierre().isBlank()) && !observacion.isBlank()) {
+                        validarLongitud(observacion, 500, "Observación de cierre");
+                        grupoExistente.setObservacionCierre(observacion);
+                        cambios++;
+                    }
+                    if (cambios > 0) grupoRepository.save(grupoExistente);
                 }
                 gruposProcesados++;
             } catch (RuntimeException e) {
@@ -455,7 +780,9 @@ public class ImportacionHistoricaService {
             }
         }
 
-        filas += importarHorarios(hojaHorarios, formatter, grupos, niveles, modalidades, errores);
+        ResultadoHorarios resultadoHorarios = importarHorarios(hojaHorarios, formatter, grupos, niveles,
+                modalidades, errores);
+        filas += resultadoHorarios.filas();
 
         List<FilaInscripcion> registros = new ArrayList<>();
         for (int i = 1; i <= hojaInscripciones.getLastRowNum(); i++) {
@@ -474,22 +801,19 @@ public class ImportacionHistoricaService {
                 Alumno alumno = alumnos.get(numeroControl);
                 if (alumno == null) alumno = alumnoRepository.findConCarreraByNumeroControl(numeroControl).orElse(null);
                 if (alumno == null) throw new IllegalArgumentException("El alumno no existe o su fila tiene errores.");
-                String oportunidad = texto(row, 5, formatter);
-                if (oportunidad.isBlank()) oportunidad = "01";
-                if (!oportunidad.equals("01") && !oportunidad.equalsIgnoreCase("R1")) {
+                String oportunidad = vacioANulo(texto(row, 5, formatter));
+                if (oportunidad != null && !oportunidad.equals("01") && !oportunidad.equalsIgnoreCase("R1")) {
                     throw new IllegalArgumentException("La oportunidad debe ser 01 o R1.");
                 }
                 Integer calificacion = enteroOpcional(row, 6, formatter, "Calificación");
                 if (calificacion != null && (calificacion < 0 || calificacion > 100)) {
                     throw new IllegalArgumentException("La calificación debe estar entre 0 y 100.");
                 }
-                boolean avancePendiente = esSi(texto(row, 7, formatter));
+                String avancePendienteTexto = texto(row, 7, formatter);
+                Boolean avancePendiente = avancePendienteTexto.isBlank() ? null : esSi(avancePendienteTexto);
                 String nivelAcreditadoTexto = texto(row, 8, formatter);
                 Nivel nivelAcreditado = nivelAcreditadoTexto.isBlank()
                         ? null : resolverNivel(niveles, nivelAcreditadoTexto);
-                if (grupo.isIntensivo() && calificacion != null && !avancePendiente && nivelAcreditado == null) {
-                    throw new IllegalArgumentException("Indica el nivel acreditado para la inscripción Intensiva.");
-                }
                 if (!grupo.isIntensivo() && nivelAcreditado != null) {
                     throw new IllegalArgumentException("El nivel acreditado solo se captura para grupos Intensivos.");
                 }
@@ -514,14 +838,18 @@ public class ImportacionHistoricaService {
                     inscripcion.setGrupo(registro.grupo());
                     inscripcion.setIdComprobante(null);
                     inscripcion.setIdAutorizacion(null);
+                    inscripcion.setOportunidad(registro.oportunidad() == null ? "01" : registro.oportunidad());
+                    inscripcion.setAvancePendiente(Boolean.TRUE.equals(registro.avancePendiente()));
                 }
-                inscripcion.setOportunidad(registro.oportunidad());
-                inscripcion.setCalificacionFinal(registro.calificacion());
-                inscripcion.setAvancePendiente(registro.avancePendiente());
-                inscripcion.setNivelAcreditado(registro.nivelAcreditado());
+                if (!nueva && registro.oportunidad() != null) inscripcion.setOportunidad(registro.oportunidad());
+                if (registro.calificacion() != null) inscripcion.setCalificacionFinal(registro.calificacion());
+                if (registro.avancePendiente() != null) inscripcion.setAvancePendiente(registro.avancePendiente());
+                if (registro.nivelAcreditado() != null) inscripcion.setNivelAcreditado(registro.nivelAcreditado());
                 inscripcionRepository.save(inscripcion);
-                if (!registro.avancePendiente() && registro.calificacion() != null) {
-                    actualizarAvance(registro, siguientes);
+                if (!inscripcion.isAvancePendiente() && registro.calificacion() != null) {
+                    actualizarAvance(new FilaInscripcion(registro.fila(), registro.numeroControl(),
+                            registro.alumno(), registro.grupo(), inscripcion.getOportunidad(),
+                            inscripcion.getCalificacionFinal(), false, inscripcion.getNivelAcreditado()), siguientes);
                 }
                 inscripcionesProcesadas++;
             } catch (RuntimeException e) {
@@ -533,7 +861,7 @@ public class ImportacionHistoricaService {
             throw new DatosInvalidosException("ALUM-023", "El archivo no contiene registros históricos.");
         }
         return new ResultadoCargaDTO(filas, alumnosCreados, historialImportado,
-                gruposProcesados, inscripcionesProcesadas, errores);
+                gruposProcesados, inscripcionesProcesadas, resultadoHorarios.creados(), errores);
     }
 
     private ResultadoCargaDTO importarFormatoAnterior(Workbook origen) {
@@ -624,7 +952,7 @@ public class ImportacionHistoricaService {
             errores.addAll(erroresAdaptacion);
             return new ResultadoCargaDTO(resultado.filas() + erroresAdaptacion.size(),
                     resultado.creados(), resultado.nivelesImportados(), resultado.gruposImportados(),
-                    resultado.inscripcionesImportadas(), errores);
+                    resultado.inscripcionesImportadas(), resultado.horariosImportados(), errores);
         } catch (IOException e) {
             throw new UncheckedIOException("No se pudo adaptar la plantilla histórica anterior.", e);
         }
@@ -683,13 +1011,10 @@ public class ImportacionHistoricaService {
         }
     }
 
-    private int importarHorarios(Sheet hoja, DataFormatter formatter, Map<ClaveGrupo, Grupo> grupos,
+    private ResultadoHorarios importarHorarios(Sheet hoja, DataFormatter formatter, Map<ClaveGrupo, Grupo> grupos,
             Map<String, Nivel> niveles, Map<String, Modalidad> modalidades, List<FilaConError> errores) {
-        Set<ClaveGrupo> gruposConHorarios = new HashSet<>();
-        grupos.forEach((clave, grupo) -> {
-            if (!grupo.getHorarios().isEmpty()) gruposConHorarios.add(clave);
-        });
         int filas = 0;
+        int creados = 0;
         for (int i = 1; i <= hoja.getLastRowNum(); i++) {
             Row row = hoja.getRow(i);
             if (vacia(row, formatter)) continue;
@@ -703,7 +1028,6 @@ public class ImportacionHistoricaService {
                 ClaveGrupo clave = new ClaveGrupo(clave(periodo), nivel.getId(), modalidad.getId(), claveGrupo);
                 Grupo grupo = grupos.get(clave);
                 if (grupo == null) throw new IllegalArgumentException("No existe el grupo indicado en la hoja Grupos.");
-                if (gruposConHorarios.contains(clave)) continue;
                 int dia = enteroObligatorio(row, 4, formatter, "Día");
                 if (dia < 1 || dia > 6) throw new IllegalArgumentException("El día debe estar entre 1 (lunes) y 6 (sábado).");
                 Horario horario = new Horario();
@@ -713,18 +1037,24 @@ public class ImportacionHistoricaService {
                 if (!horario.getHoraInicio().isBefore(horario.getHoraFin())) {
                     throw new IllegalArgumentException("La hora de fin debe ser posterior a la de inicio.");
                 }
-                if (horario.getHoraInicio().isBefore(LocalTime.of(10, 0))
-                        || horario.getHoraFin().isAfter(LocalTime.of(17, 0))) {
-                    throw new IllegalArgumentException(
-                            "El horario está fuera del rango que permite SIGCLEM (10:00 a 17:00); omítelo si es solo una referencia histórica.");
-                }
+                boolean duplicado = grupo.getHorarios().stream().anyMatch(existente ->
+                        existente.getDiaSemana().equals(dia)
+                                && existente.getHoraInicio().equals(horario.getHoraInicio())
+                                && existente.getHoraFin().equals(horario.getHoraFin()));
+                if (duplicado) continue;
+                boolean traslape = grupo.getHorarios().stream().anyMatch(existente ->
+                        existente.getDiaSemana().equals(dia)
+                                && horario.getHoraInicio().isBefore(existente.getHoraFin())
+                                && existente.getHoraInicio().isBefore(horario.getHoraFin()));
+                if (traslape) throw new IllegalArgumentException("El horario se traslapa con otro del grupo.");
                 grupo.agregarHorario(horario);
                 grupoRepository.save(grupo);
+                creados++;
             } catch (RuntimeException e) {
                 errores.add(error("Horarios", i + 1, "", e));
             }
         }
-        return filas;
+        return new ResultadoHorarios(filas, creados);
     }
 
     private void actualizarAvance(FilaInscripcion fila, Map<Integer, Integer> siguientes) {
@@ -954,7 +1284,10 @@ public class ImportacionHistoricaService {
     }
 
     private record FilaInscripcion(int fila, String numeroControl, Alumno alumno, Grupo grupo,
-            String oportunidad, Integer calificacion, boolean avancePendiente, Nivel nivelAcreditado) {
+            String oportunidad, Integer calificacion, Boolean avancePendiente, Nivel nivelAcreditado) {
+    }
+
+    private record ResultadoHorarios(int filas, int creados) {
     }
 
     private record FilaGrupoAnterior(String periodo, String nivel, String modalidad, String clave) {

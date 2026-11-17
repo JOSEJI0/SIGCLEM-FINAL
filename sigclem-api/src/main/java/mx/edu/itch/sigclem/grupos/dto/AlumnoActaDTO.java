@@ -12,7 +12,15 @@ import mx.edu.itch.sigclem.pagos.domain.AutorizacionPago;
  */
 public record AlumnoActaDTO(String numeroControl, String nombreCompleto, Integer calificacionFinal,
         String estatusPago, BigDecimal saldoPendiente, boolean avancePendiente, Integer idNivelAcreditado,
-        String nivelAcreditado) {
+        String nivelAcreditado, Integer calificacionSecundaria, String estatusPagoSecundario,
+        BigDecimal saldoPendienteSecundario, boolean avancePendienteSecundario) {
+
+    public AlumnoActaDTO(String numeroControl, String nombreCompleto, Integer calificacionFinal,
+            String estatusPago, BigDecimal saldoPendiente, boolean avancePendiente, Integer idNivelAcreditado,
+            String nivelAcreditado) {
+        this(numeroControl, nombreCompleto, calificacionFinal, estatusPago, saldoPendiente, avancePendiente,
+                idNivelAcreditado, nivelAcreditado, null, null, null, false);
+    }
 
     public static AlumnoActaDTO desde(Inscripcion inscripcion) {
         return desde(inscripcion, null);
@@ -25,6 +33,20 @@ public record AlumnoActaDTO(String numeroControl, String nombreCompleto, Integer
                 inscripcion.getAlumno().nombreCompleto(), inscripcion.getCalificacionFinal(),
                 estatus, cargo == null ? null : cargo.getSaldoPendiente(), inscripcion.isAvancePendiente(),
                 inscripcion.getNivelAcreditado() == null ? null : inscripcion.getNivelAcreditado().getId(),
-                inscripcion.getNivelAcreditado() == null ? null : inscripcion.getNivelAcreditado().getNombre());
+                inscripcion.getNivelAcreditado() == null ? null : inscripcion.getNivelAcreditado().getNombre(),
+                inscripcion.getCalificacionSecundaria(), null, null, inscripcion.isAvancePendienteSecundario());
+    }
+
+    public static AlumnoActaDTO desde(Inscripcion inscripcion, AutorizacionPago cargo,
+            AutorizacionPago cargoSecundario) {
+        AlumnoActaDTO base = desde(inscripcion, cargo);
+        String estatusSecundario = cargoSecundario != null ? cargoSecundario.getEstatus()
+                : inscripcion.getIdComprobanteSecundario() != null ? "Liquidada"
+                        : inscripcion.getIdAutorizacionSecundaria() != null ? "Pendiente" : null;
+        return new AlumnoActaDTO(base.numeroControl(), base.nombreCompleto(), base.calificacionFinal(), base.estatusPago(),
+                base.saldoPendiente(), base.avancePendiente(), base.idNivelAcreditado(), base.nivelAcreditado(),
+                base.calificacionSecundaria(), estatusSecundario,
+                cargoSecundario == null ? null : cargoSecundario.getSaldoPendiente(),
+                base.avancePendienteSecundario());
     }
 }

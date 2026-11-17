@@ -12,11 +12,11 @@ import mx.edu.itch.sigclem.seguridad.domain.Usuario;
 
 /** Identidad del usuario dentro del contexto de seguridad. */
 public record UsuarioAutenticado(Integer id, String nombreUsuario, String contrasenaHash, RolSistema rol,
-        boolean activo) implements UserDetails {
+        boolean activo, boolean requiereCambioContrasena) implements UserDetails {
 
     public static UsuarioAutenticado desde(Usuario u) {
         return new UsuarioAutenticado(u.getId(), u.getNombreUsuario(), u.getContrasenaHash(),
-                u.getRol().comoRolSistema(), u.isActivo());
+                u.getRol().comoRolSistema(), u.isActivo(), u.isRequiereCambioContrasena());
     }
 
     @Override

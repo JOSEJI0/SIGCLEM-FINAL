@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Award, Eye, FileCheck2 } from 'lucide-react';
 import {
-  consultarElegibilidadConstancia, descargarPdfConstancia, listarMisConstancias, solicitarConstancia,
+  consultarElegibilidadConstancia, descargarPdfConstancia, descargarWordConstancia, listarMisConstancias, solicitarConstancia,
 } from '../../api/constancias';
 import { mensajeError } from '../../api/cliente';
 import ConstanciasAvance from '../../components/ConstanciasAvance';
@@ -52,11 +52,27 @@ export default function Constancias() {
     }
   };
 
-  const ver = (item) => verDocumento({
-    titulo: `Constancia de acreditación · folio ${item.folio}`,
-    nombre: `constancia-${item.folio}`,
-    cargar: () => descargarPdfConstancia(item.id),
-  });
+  const ver = async (item) => {
+    if (item.tieneArchivoWord) {
+      try {
+        const blob = await descargarWordConstancia(item.id);
+        const url = URL.createObjectURL(blob);
+        const enlace = document.createElement('a');
+        enlace.href = url;
+        enlace.download = `constancia-${item.folio}.docx`;
+        enlace.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (err) {
+        setError(mensajeError(err));
+      }
+      return;
+    }
+    verDocumento({
+      titulo: `Constancia de acreditación · folio ${item.folio}`,
+      nombre: `constancia-${item.folio}`,
+      cargar: () => descargarPdfConstancia(item.id),
+    });
+  };
 
   if (cargando) return <Cargando />;
 
@@ -67,14 +83,23 @@ export default function Constancias() {
           <Award className="h-5 w-5" /> Mis constancias
         </h1>
         <p className="mt-1 text-sm text-tenue">
-          Solicita tu constancia cuando hayas acreditado los diez niveles del programa de inglés.
+          {elegibilidad?.formaLiberacion
+            ? `Tu idioma fue liberado mediante ${elegibilidad.formaLiberacion}.`
+            : 'Solicita tu constancia cuando hayas acreditado los diez niveles del programa de inglés.'}
         </p>
       </div>
 
       {error && <Alerta tipo="error">{error}</Alerta>}
       {exito && <Alerta tipo="ok">{exito}</Alerta>}
 
-      {elegibilidad && (
+      {elegibilidad?.formaLiberacion ? (
+        <Alerta tipo="info">
+          No aplica la constancia de diez niveles de inglés porque tu idioma fue liberado mediante {elegibilidad.formaLiberacion}.
+          {elegibilidad.formaLiberacion === 'Lengua materna'
+            ? ' Consulta tu constancia oficial en el apartado de Lengua materna.'
+            : ''}
+        </Alerta>
+      ) : elegibilidad && (
         <Tarjeta titulo="Requisitos de acreditación" icono={FileCheck2}>
           <div className="grid gap-3 sm:grid-cols-3">
             <div>
@@ -134,7 +159,7 @@ export default function Constancias() {
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
                     <span>Folio {item.folio} · {item.totalHoras} horas · MCER {item.nivelMcer}</span>
                     <Boton variante="secundario" onClick={() => ver(item)}>
-                      <Eye className="h-4 w-4" /> Ver PDF
+                      <Eye className="h-4 w-4" /> {item.tieneArchivoWord ? 'Descargar Word' : 'Ver PDF'}
                     </Boton>
                   </div>
                 ) : item.estatus === 'Rechazada' ? (
@@ -147,7 +172,7 @@ export default function Constancias() {
           </div>
         )}
       </Tarjeta>
-      <ConstanciasAvance propias />
+      {!elegibilidad?.formaLiberacion && <ConstanciasAvance propias />}
     </div>
   );
 }

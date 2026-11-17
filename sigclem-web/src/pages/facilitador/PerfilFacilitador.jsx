@@ -91,9 +91,9 @@ export default function PerfilFacilitador() {
                   {historial.map((g) => (
                     <tr key={g.id} className="border-b border-linea last:border-0">
                       <td className="px-2 py-2">{g.periodo}</td>
-                      <td className="px-2 py-2">{g.intensivo ? 'Intensivo' : g.nivel} · {g.clave}</td>
+                      <td className="px-2 py-2">{g.intensivo ? 'Intensivo · 10 niveles' : [g.nivel, g.nivelSecundario].filter(Boolean).join(' + ')} · {g.clave}</td>
                       <td className="px-2 py-2">{g.modalidad}</td>
-                      <td className="px-2 py-2">{g.alumnosInscritos}/{g.cupo}</td>
+                      <td className="px-2 py-2">{g.alumnosInscritos}/{g.cupo ?? 'Pendiente'}</td>
                       <td className="px-2 py-2">{g.estatusActa}</td>
                     </tr>
                   ))}

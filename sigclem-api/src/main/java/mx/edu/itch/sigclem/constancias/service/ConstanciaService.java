@@ -1,7 +1,5 @@
 package mx.edu.itch.sigclem.constancias.service;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -19,6 +17,7 @@ import org.springframework.core.io.Resource;
 import lombok.RequiredArgsConstructor;
 import mx.edu.itch.sigclem.alumnos.domain.Alumno;
 import mx.edu.itch.sigclem.alumnos.domain.AvanceNivel;
+import mx.edu.itch.sigclem.alumnos.service.AlumnoService;
 import mx.edu.itch.sigclem.alumnos.repository.AlumnoRepository;
 import mx.edu.itch.sigclem.alumnos.repository.AvanceNivelRepository;
 import mx.edu.itch.sigclem.catalogos.domain.Nivel;
@@ -27,11 +26,13 @@ import mx.edu.itch.sigclem.comun.excepcion.ConflictoException;
 import mx.edu.itch.sigclem.comun.excepcion.DatosInvalidosException;
 import mx.edu.itch.sigclem.comun.excepcion.RecursoNoEncontradoException;
 import mx.edu.itch.sigclem.constancias.domain.Constancia;
+import mx.edu.itch.sigclem.constancias.domain.FolioConstanciaUsado;
 import mx.edu.itch.sigclem.constancias.dto.AutorizarConstanciaRequest;
 import mx.edu.itch.sigclem.constancias.dto.ConstanciaDTO;
 import mx.edu.itch.sigclem.constancias.dto.ElegibilidadConstanciaDTO;
 import mx.edu.itch.sigclem.constancias.dto.RechazarConstanciaRequest;
 import mx.edu.itch.sigclem.constancias.repository.ConstanciaRepository;
+import mx.edu.itch.sigclem.constancias.repository.FolioConstanciaUsadoRepository;
 import mx.edu.itch.sigclem.notificaciones.domain.Notificacion;
 import mx.edu.itch.sigclem.notificaciones.repository.NotificacionRepository;
 import mx.edu.itch.sigclem.seguridad.domain.RolSistema;
@@ -52,8 +53,10 @@ public class ConstanciaService {
     private final NivelRepository nivelRepository;
     private final UsuarioRepository usuarioRepository;
     private final NotificacionRepository notificacionRepository;
-    private final ConstanciaPdfService pdfService;
     private final ArchivoConstanciaService archivoService;
+    private final ConstanciaWordService wordService;
+    private final ConfiguracionConstanciaService configuracionConstanciaService;
+    private final FolioConstanciaUsadoRepository folioRepository;
 
     @Transactional(readOnly = true)
     public ElegibilidadConstanciaDTO consultarElegibilidad(String nombreUsuario) {
@@ -89,6 +92,11 @@ public class ConstanciaService {
 
     private Constancia crearSolicitud(Alumno alumno) {
         ElegibilidadConstanciaDTO progreso = elegibilidad(alumno);
+        if (progreso.formaLiberacion() != null) {
+            throw new DatosInvalidosException("CON-013",
+                    "Tu idioma fue liberado mediante " + progreso.formaLiberacion()
+                            + "; no aplica la constancia de acreditación de diez niveles de inglés.");
+        }
         if (!progreso.elegible()) {
             throw new DatosInvalidosException("CON-001",
                     "Acredita los diez niveles de inglés para solicitar la constancia. Faltan: "
@@ -144,8 +152,11 @@ public class ConstanciaService {
         if (!"Solicitada".equals(constancia.getEstatus())) {
             throw new ConflictoException("CON-005", "Solo se pueden autorizar solicitudes pendientes.");
         }
-        String folio = solicitud.folio().trim();
+        String folio = solicitud.folio().trim().toUpperCase(java.util.Locale.ROOT);
         if (constanciaRepository.existsByFolioIgnoreCase(folio)) {
+            throw new ConflictoException("CON-007", "El folio ya está asignado. Captura uno diferente.");
+        }
+        if (folioRepository.existsById(folio.toUpperCase(java.util.Locale.ROOT))) {
             throw new ConflictoException("CON-007", "El folio ya está asignado. Captura uno diferente.");
         }
         Usuario coordinador = buscarUsuario(nombreCoordinador);
@@ -157,25 +168,21 @@ public class ConstanciaService {
         constancia.setFechaExpedicion(LocalDate.now());
         constancia.setUsuarioAutoriza(coordinador);
         constancia.setEstatus("Emitida");
-        byte[] pdf;
+        byte[] word = wordService.generarIngles(
+                ConstanciaDTO.desde(constancia), configuracionConstanciaService.membreteVigente());
+        String rutaWord = archivoService.guardarWord(ConstanciaWordService.INGLES, constancia.getId(), word);
+        constancia.setArchivoWord(rutaWord);
         try {
-            pdf = pdfService.generar(ConstanciaDTO.desde(constancia));
-        } catch (IOException e) {
-            throw new UncheckedIOException("No se pudo generar el PDF de la constancia.", e);
-        }
-
-        String rutaPdf = archivoService.guardar(constancia.getId(), pdf);
-        constancia.setArchivoPdf(rutaPdf);
-        try {
+            folioRepository.saveAndFlush(new FolioConstanciaUsado(folio.toUpperCase(java.util.Locale.ROOT)));
             constanciaRepository.saveAndFlush(constancia);
         } catch (DataIntegrityViolationException e) {
-            archivoService.eliminar(rutaPdf);
+            archivoService.eliminarWord(rutaWord);
             throw new ConflictoException("CON-007", "El folio ya está asignado. Captura uno diferente.");
         }
         try {
             notificarAJefatura(constancia, coordinador);
         } catch (RuntimeException e) {
-            archivoService.eliminar(rutaPdf);
+            archivoService.eliminarWord(rutaWord);
             throw e;
         }
         return ConstanciaDTO.desde(constancia);
@@ -219,9 +226,25 @@ public class ConstanciaService {
         return archivoService.cargar(constancia.getArchivoPdf());
     }
 
+    @Transactional(readOnly = true)
+    public Resource descargarWord(Integer id, String nombreUsuario, boolean esAlumno) {
+        Constancia constancia = buscarConstancia(id);
+        if (esAlumno) {
+            Alumno alumno = buscarAlumno(nombreUsuario);
+            if (!alumno.getNumeroControl().equals(constancia.getAlumno().getNumeroControl())) {
+                throw new RecursoNoEncontradoException("CON-006", "No se encontró la constancia Word.");
+            }
+        }
+        if (!"Emitida".equals(constancia.getEstatus()) || constancia.getArchivoWord() == null) {
+            throw new RecursoNoEncontradoException("CON-006", "No se encontró la constancia Word.");
+        }
+        return archivoService.cargarWord(constancia.getArchivoWord());
+    }
+
     private ElegibilidadConstanciaDTO elegibilidad(Alumno alumno) {
-        Map<Integer, AvanceNivel> avances = avanceNivelRepository
-                .findByIdNumeroControl(alumno.getNumeroControl()).stream()
+        List<AvanceNivel> listaAvance = avanceNivelRepository.findByIdNumeroControl(alumno.getNumeroControl());
+        String formaLiberacion = AlumnoService.formaLiberacion(listaAvance);
+        Map<Integer, AvanceNivel> avances = listaAvance.stream()
                 .collect(Collectors.toMap(avance -> avance.getId().getIdNivel(), Function.identity()));
         Map<Integer, Nivel> niveles = nivelRepository.findAllByOrderByNumeroAsc().stream()
                 .collect(Collectors.toMap(Nivel::getNumero, Function.identity()));
@@ -239,7 +262,8 @@ public class ConstanciaService {
                 .sum();
         String mcer = niveles.containsKey(10) ? niveles.get(10).getNivelMcer() : null;
         return new ElegibilidadConstanciaDTO(
-                IDIOMA, acreditados, 10, horas, mcer, faltantes.isEmpty(), faltantes);
+                IDIOMA, acreditados, 10, horas, mcer,
+                faltantes.isEmpty() && formaLiberacion == null, faltantes, formaLiberacion);
     }
 
     private boolean nivelAcreditado(

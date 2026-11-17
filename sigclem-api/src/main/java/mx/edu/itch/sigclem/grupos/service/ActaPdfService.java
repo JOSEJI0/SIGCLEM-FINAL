@@ -51,11 +51,11 @@ public class ActaPdfService {
                 paginas.add(pagina);
                 try (PDPageContentStream c = new PDPageContentStream(documento, pagina)) {
                     float y = encabezado(documento, c, g, cerrada, paginas.size() == 1);
-                    y = encabezadoTabla(c, y);
+                    y = encabezadoTabla(c, y, g);
                     // Con observación de coordinación se reserva espacio para el texto antes de las firmas.
                     float limite = g.observacionCierre() == null ? 150 : 210;
                     while (indice < alumnos.size() && y - ALTO_FILA > limite) {
-                        fila(c, indice + 1, alumnos.get(indice), cerrada, y);
+                        fila(c, indice + 1, alumnos.get(indice), g, cerrada, y);
                         y -= ALTO_FILA;
                         indice++;
                     }
@@ -94,13 +94,17 @@ public class ActaPdfService {
 
         float y = 690;
         String horario = horarioCompacto(g);
+        String curso = g.intensivo() ? "Intensivo (10 niveles)"
+                : g.nivel() + (g.nivelSecundario() == null ? "" : " y " + g.nivelSecundario());
         dato(c, g.intensivo() ? "Curso:" : "Nivel:",
-                (g.intensivo() ? "Intensivo (Básico 1 a Intermedio 5)" : g.nivel()) + " · Grupo " + g.clave(),
+                curso + " · Grupo " + g.clave(),
                 MARGEN, y);
         dato(c, "Periodo:", g.periodo(), 320, y);
         y -= 14;
         dato(c, "Facilitador(a):", g.facilitador(), MARGEN, y);
         dato(c, "Modalidad:", g.modalidad() + " · " + g.aula(), 320, y);
+        y -= 14;
+        dato(c, "Captura:", g.fechaInicioCaptura().format(FECHA) + " a " + g.fechaFinCaptura().format(FECHA), MARGEN, y);
         y -= 14;
         // El horario ocupa la columna izquierda; si no cabe junto al estado, el estado baja a su propia línea.
         float anchoHorario = PdfConstancia.ancho("Horario: " + horario, NORMAL, 8.5f) + 8;
@@ -162,30 +166,53 @@ public class ActaPdfService {
         PdfConstancia.texto(c, valor == null ? "—" : valor, NORMAL, 8.5f, x + PdfConstancia.ancho(etiqueta, NEGRITA, 8.5f) + 4, y);
     }
 
-    private float encabezadoTabla(PDPageContentStream c, float y) throws IOException {
+    private float encabezadoTabla(PDPageContentStream c, float y, GrupoDTO grupo) throws IOException {
         c.setNonStrokingColor(0.90f, 0.93f, 0.97f);
         c.addRect(MARGEN - 4, y - 5, ANCHO - 2 * MARGEN + 8, ALTO_FILA);
         c.fill();
         c.setNonStrokingColor(0f, 0f, 0f);
-        String[] titulos = { "No.", "No. de control", "Nombre del alumno", "Calif.", "Con letra", "Resultado" };
+        boolean dosNiveles = grupo.idNivelSecundario() != null;
+        float[] columnas = dosNiveles
+                ? new float[] { MARGEN, MARGEN + 26, MARGEN + 108, MARGEN + 330, MARGEN + 380, MARGEN + 430 }
+                : X;
+        String[] titulos = dosNiveles
+                ? new String[] { "No.", "No. de control", "Nombre del alumno", "Niv. " + grupo.nivelNumero(),
+                        "Niv. " + grupo.nivelNumeroSecundario(), "Resultado" }
+                : new String[] { "No.", "No. de control", "Nombre del alumno", "Calif.", "Con letra", "Resultado" };
         for (int i = 0; i < titulos.length; i++) {
-            PdfConstancia.texto(c, titulos[i], NEGRITA, 8, X[i], y);
+            PdfConstancia.texto(c, titulos[i], NEGRITA, 8, columnas[i], y);
         }
         return y - ALTO_FILA;
     }
 
-    private void fila(PDPageContentStream c, int numero, AlumnoActaDTO a, boolean cerrada, float y) throws IOException {
+    private void fila(PDPageContentStream c, int numero, AlumnoActaDTO a, GrupoDTO grupo,
+            boolean cerrada, float y) throws IOException {
         Integer cal = a.calificacionFinal();
-        PdfConstancia.texto(c, String.valueOf(numero), NORMAL, 8, X[0], y);
-        PdfConstancia.texto(c, a.numeroControl(), NORMAL, 8, X[1], y);
-        PdfConstancia.texto(c, recortar(a.nombreCompleto(), 215), NORMAL, 8, X[2], y);
-        PdfConstancia.texto(c, cal == null ? "—" : String.valueOf(cal), NEGRITA, 8, X[3], y);
-        PdfConstancia.texto(c, cal == null ? "" : PdfConstancia.numeroConLetra(cal), NORMAL, 7, X[4], y);
+        boolean dosNiveles = grupo.idNivelSecundario() != null;
+        float[] columnas = dosNiveles
+                ? new float[] { MARGEN, MARGEN + 26, MARGEN + 108, MARGEN + 330, MARGEN + 380, MARGEN + 430 }
+                : X;
+        PdfConstancia.texto(c, String.valueOf(numero), NORMAL, 8, columnas[0], y);
+        PdfConstancia.texto(c, a.numeroControl(), NORMAL, 8, columnas[1], y);
+        PdfConstancia.texto(c, recortar(a.nombreCompleto(), 215), NORMAL, 8, columnas[2], y);
+        PdfConstancia.texto(c, cal == null ? "—" : String.valueOf(cal), NEGRITA, 8, columnas[3], y);
+        if (dosNiveles) {
+            Integer secundaria = a.calificacionSecundaria();
+            PdfConstancia.texto(c, secundaria == null ? "—" : String.valueOf(secundaria), NEGRITA, 8, columnas[4], y);
+        } else {
+            PdfConstancia.texto(c, cal == null ? "" : PdfConstancia.numeroConLetra(cal), NORMAL, 7, columnas[4], y);
+        }
         String resultado = cal == null ? "Sin captura"
-                : a.avancePendiente() ? "Nivel pendiente*"
+                : a.avancePendiente() ? "Pendiente pago"
                 : cal >= APROBATORIA ? "Acreditado" : "No acreditado";
+        if (dosNiveles && a.calificacionSecundaria() != null) {
+            String resultadoSecundario = a.avancePendienteSecundario() ? "Pendiente pago"
+                    : a.calificacionSecundaria() >= APROBATORIA ? "Acreditado" : "No acreditado";
+            resultado += " / " + resultadoSecundario;
+        }
         String nivel = a.nivelAcreditado() == null ? "" : " · " + a.nivelAcreditado();
-        PdfConstancia.texto(c, (cerrada || cal != null ? resultado : "Sin captura") + nivel, NORMAL, 8, X[5], y);
+        PdfConstancia.texto(c, (cerrada || cal != null ? resultado : "Sin captura") + nivel, NORMAL,
+                dosNiveles ? 6.5f : 8, columnas[5], y);
         c.setStrokingColor(0.85f, 0.87f, 0.90f);
         c.setLineWidth(0.4f);
         c.moveTo(MARGEN - 4, y - 5);
@@ -196,14 +223,20 @@ public class ActaPdfService {
 
     private void cierre(PDPageContentStream c, List<AlumnoActaDTO> alumnos, GrupoDTO g, MembreteConstancia membrete,
             boolean cerrada, float y) throws IOException {
-        long capturadas = alumnos.stream().filter(a -> a.calificacionFinal() != null).count();
-        long acreditados = alumnos.stream().filter(a -> a.calificacionFinal() != null && a.calificacionFinal() >= APROBATORIA).count();
-        double promedio = alumnos.stream().filter(a -> a.calificacionFinal() != null)
-                .mapToInt(AlumnoActaDTO::calificacionFinal).average().orElse(0);
-        String resumen = "Inscritos: " + alumnos.size() + "   ·   Acreditados: " + acreditados
-                + "   ·   No acreditados: " + (capturadas - acreditados)
-                + (capturadas < alumnos.size() ? "   ·   Sin captura: " + (alumnos.size() - capturadas) : "")
-                + "   ·   Promedio: " + (capturadas == 0 ? "—" : String.format(PdfConstancia.ES, "%.1f", promedio));
+        int nivelesPorAlumno = g.idNivelSecundario() == null ? 1 : 2;
+        long capturadas = alumnos.stream().mapToLong(a -> (a.calificacionFinal() == null ? 0 : 1)
+                + (a.calificacionSecundaria() == null ? 0 : 1)).sum();
+        long acreditados = alumnos.stream().mapToLong(a -> (a.calificacionFinal() != null
+                && a.calificacionFinal() >= APROBATORIA ? 1 : 0)
+                + (a.calificacionSecundaria() != null && a.calificacionSecundaria() >= APROBATORIA ? 1 : 0)).sum();
+        long totalCalificaciones = (long) alumnos.size() * nivelesPorAlumno;
+        double suma = alumnos.stream().mapToInt(a -> (a.calificacionFinal() == null ? 0 : a.calificacionFinal())
+                + (a.calificacionSecundaria() == null ? 0 : a.calificacionSecundaria())).sum();
+        double promedio = capturadas == 0 ? 0 : suma / capturadas;
+        String resumen = "Inscritos: " + alumnos.size() + " · Calificaciones acreditadas: " + acreditados
+                + " · No acreditadas: " + (capturadas - acreditados)
+                + (capturadas < totalCalificaciones ? " · Sin captura: " + (totalCalificaciones - capturadas) : "")
+                + " · Promedio: " + (capturadas == 0 ? "—" : String.format(PdfConstancia.ES, "%.1f", promedio));
         PdfConstancia.texto(c, resumen, NEGRITA, 8.5f, MARGEN, y - 10);
         float yTexto = y - 10;
         if (g.observacionCierre() != null) {
@@ -212,7 +245,7 @@ public class ActaPdfService {
                             + "Observación: ", NEGRITA),
                     new PdfConstancia.Trozo(g.observacionCierre(), NORMAL)),
                     MARGEN, y - 26, ANCHO - 2 * MARGEN, 8, 10);
-            if (alumnos.stream().anyMatch(AlumnoActaDTO::avancePendiente)) {
+            if (alumnos.stream().anyMatch(a -> a.avancePendiente() || a.avancePendienteSecundario())) {
                 PdfConstancia.texto(c, "* Calificación registrada; el nivel se asigna cuando el alumno liquide su curso.",
                         NORMAL, 7.5f, MARGEN, yTexto - 4);
                 yTexto -= 12;

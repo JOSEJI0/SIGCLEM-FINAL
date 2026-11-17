@@ -34,8 +34,26 @@ export const cargarAlumnosExcel = (archivo) => {
   datos.append('archivo', archivo);
   return api.post('/alumnos/carga', datos, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data);
 };
+/** Completa únicamente campos vacíos de alumnos, facilitadores, grupos y horarios existentes. */
+export const completarDatosExcel = (archivo) => {
+  const datos = new FormData();
+  datos.append('archivo', archivo);
+  return api.post('/alumnos/completar', datos, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then((r) => r.data);
+};
 export const descargarPlantillaAlumnos = () =>
   api.get('/alumnos/plantilla', { responseType: 'blob' }).then((r) => r.data);
+/** Carga operativa: crea alumnos, facilitadores, grupos y horarios sin importar avance académico. */
+export const cargarImportacionOperativa = (archivo) => {
+  const datos = new FormData();
+  datos.append('archivo', archivo);
+  return api.post('/alumnos/carga-operativa', datos, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then((r) => r.data);
+};
+export const descargarPlantillaOperativa = () =>
+  api.get('/alumnos/carga-operativa/plantilla', { responseType: 'blob' }).then((r) => r.data);
 /**
  * CU-03: consulta completa del expediente del alumno con su avance reticular en los diez niveles de inglés.
  * Rol: Alumno (solo su propio expediente), Coordinador.

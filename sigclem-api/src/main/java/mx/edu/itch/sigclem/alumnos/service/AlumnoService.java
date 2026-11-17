@@ -195,23 +195,23 @@ public class AlumnoService {
     }
 
     /** Deduce con qué forma el alumno liberó la lengua extranjera, a partir del origen de los niveles cubiertos. */
-    private static String formaLiberacion(List<AvanceNivel> avance) {
-    java.util.Set<String> origenes = avance.stream()
-            .filter(a -> a.getEstatus().cubreNivel())
-            .map(AvanceNivel::getOrigen)
-            .filter(java.util.Objects::nonNull)
-            .collect(Collectors.toSet());
-    for (String forma : List.of("Examen global", "Lengua materna")) {
-        if (origenes.contains(forma)) return forma;
+    public static String formaLiberacion(List<AvanceNivel> avance) {
+        java.util.Set<String> origenes = avance.stream()
+                .filter(a -> a.getEstatus().cubreNivel())
+                .map(AvanceNivel::getOrigen)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
+        for (String forma : List.of("Examen global", "Lengua materna")) {
+            if (origenes.contains(forma)) return forma;
+        }
+        for (String origen : origenes) {
+            if (!origen.equals("Curso") && !origen.startsWith("Examen de ")) return origen;
+        }
+        for (String origen : origenes) {
+            if (origen.startsWith("Examen de ")) return origen;
+        }
+        return null;
     }
-    for (String o : origenes) {                      // forma escrita por coordinación
-        if (!o.equals("Curso") && !o.startsWith("Examen de ")) return o;
-    }
-    for (String o : origenes) {                      // colocación o cuatro habilidades
-        if (o.startsWith("Examen de ")) return o;
-    }
-    return "Curso";
-}
 
     /**
      * Libera la lengua extranjera por una forma distinta a completar los diez niveles (examen global, lengua materna
@@ -220,6 +220,11 @@ public class AlumnoService {
      */
     @Transactional
     public ExpedienteDTO liberarIdioma(String numeroControl, String forma, String detalle) {
+        String formaLimpia = (forma == null || forma.isBlank()) ? "Otra" : forma.trim();
+        if ("Curso intensivo".equalsIgnoreCase(formaLimpia)) {
+            throw new DatosInvalidosException("ALUM-014",
+                    "El curso Intensivo debe registrarse como grupo y acreditar los niveles en su acta; no libera el idioma por sí solo.");
+        }
         Alumno alumno = alumnoRepository.findConCarreraByNumeroControl(numeroControl)
                 .orElseThrow(() -> new RecursoNoEncontradoException("ALUM-003",
                         "No existe un alumno con número de control " + numeroControl + "."));
@@ -228,7 +233,6 @@ public class AlumnoService {
             throw new DatosInvalidosException("ALUM-013", "El alumno ya tiene la lengua extranjera acreditada.");
         }
         // El origen guarda la forma (cabe en 30 caracteres); el detalle queda en la bitácora de auditoría.
-        String formaLimpia = (forma == null || forma.isBlank()) ? "Otra" : forma.trim();
         avance.stream()
                 .filter(a -> !a.getEstatus().cubreNivel())
                 .forEach(a -> {
@@ -237,6 +241,16 @@ public class AlumnoService {
                 });
         avanceRepository.saveAll(avance);
         return armarExpediente(alumno, avance);
+    }
+
+    /** Libera por lengua materna al validar su registro; no altera retículas ya completas. */
+    @Transactional
+    public ExpedienteDTO liberarIdiomaPorLenguaMaterna(String numeroControl) {
+        List<AvanceNivel> avance = avanceRepository.findByIdNumeroControl(numeroControl);
+        if (avance.isEmpty() || avance.stream().allMatch(a -> a.getEstatus().cubreNivel())) {
+            return expediente(numeroControl);
+        }
+        return liberarIdioma(numeroControl, "Lengua materna", null);
     }
 
     /**
@@ -319,7 +333,13 @@ public class AlumnoService {
                 .filter(i -> "Cerrada".equals(i.getGrupo().getEstatusActa()) && i.getCalificacionFinal() != null)
                 .sorted(Comparator.comparing((Inscripcion i) -> i.getGrupo().getFechaCierreActa()))
                 // La más reciente prevalece (por ejemplo, si reprobó y volvió a cursar el nivel).
-                .forEach(i -> calificacionPorNivel.put(i.getGrupo().getNivel().getId(), i.getCalificacionFinal()));
+                .forEach(i -> {
+                    calificacionPorNivel.put(i.getGrupo().getNivel().getId(), i.getCalificacionFinal());
+                    if (i.getGrupo().getNivelSecundario() != null && i.getCalificacionSecundaria() != null) {
+                        calificacionPorNivel.put(i.getGrupo().getNivelSecundario().getId(),
+                                i.getCalificacionSecundaria());
+                    }
+                });
 
         return niveles.stream().map(n -> {
             AvanceNivel a = porNivel.get(n.getId());

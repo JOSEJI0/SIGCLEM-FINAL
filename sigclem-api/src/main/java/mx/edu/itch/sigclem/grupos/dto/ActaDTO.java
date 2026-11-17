@@ -19,7 +19,9 @@ public record ActaDTO(GrupoDTO grupo, List<AlumnoActaDTO> alumnos) {
                 inscripciones.stream()
                         .sorted(java.util.Comparator.comparing(i -> i.getAlumno().nombreCompleto()))
                         .map(i -> AlumnoActaDTO.desde(i,
-                                i.getIdAutorizacion() == null ? null : cargos.get(i.getIdAutorizacion())))
+                                i.getIdAutorizacion() == null ? null : cargos.get(i.getIdAutorizacion()),
+                                i.getIdAutorizacionSecundaria() == null ? null
+                                        : cargos.get(i.getIdAutorizacionSecundaria())))
                         .toList());
     }
 }

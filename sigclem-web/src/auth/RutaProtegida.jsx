@@ -3,11 +3,18 @@ import { useAuth } from './AuthContext';
 import { rutaInicio } from './roles';
 
 export default function RutaProtegida({ roles = [] }) {
-  const { perfil, modoPruebas } = useAuth();
+  const { perfil, modoPruebas, sesion } = useAuth();
   const { pathname } = useLocation();
 
   if (!perfil) {
     return <Navigate to="/login" replace state={{ desde: pathname }} />;
+  }
+
+  if (sesion?.requiereCambioContrasena && pathname !== '/cambiar-contrasena-temporal') {
+    return <Navigate to="/cambiar-contrasena-temporal" replace />;
+  }
+  if (!sesion?.requiereCambioContrasena && pathname === '/cambiar-contrasena-temporal') {
+    return <Navigate to={rutaInicio(perfil.rol)} replace />;
   }
 
   if (roles.length > 0 && !roles.includes(perfil.rol)) {

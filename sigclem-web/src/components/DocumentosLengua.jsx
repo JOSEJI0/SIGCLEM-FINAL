@@ -8,11 +8,13 @@ export const DOCUMENTOS_LENGUA = [
   ['constancia', 'Constancia de acreditación', 'tieneConstancia'],
 ];
 
-export default function DocumentosLengua({ registro, onVer }) {
+export default function DocumentosLengua({ registro, onVer, onDescargar }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {DOCUMENTOS_LENGUA.map(([tipo, etiqueta, bandera]) => (registro[bandera] ? (
-        <button key={tipo} type="button" onClick={() => onVer(registro, tipo, etiqueta)}
+        <button key={tipo} type="button"
+          onClick={() => tipo === 'constancia' && registro.folioConstancia
+            ? onDescargar(registro, tipo, etiqueta) : onVer(registro, tipo, etiqueta)}
           className="inline-flex items-center gap-1 rounded-full bg-info-fondo px-2.5 py-1 text-[11.5px] font-semibold text-[#1C4A7E] hover:brightness-95">
           <FileText className="h-3 w-3" /> {etiqueta}
         </button>

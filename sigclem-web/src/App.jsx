@@ -33,6 +33,7 @@ import PanelFacilitador from './pages/facilitador/PanelFacilitador';
 import GruposFacilitador from './pages/facilitador/GruposFacilitador';
 import MisGrupos from './pages/facilitador/MisGrupos';
 import PerfilFacilitador from './pages/facilitador/PerfilFacilitador';
+import CambiarMiContrasena from './components/CambiarMiContrasena';
 
 /** El apartado de lengua materna solo existe para quien respondió en su registro que habla una. */
 function SoloHablantesLenguaMaterna({ children }) {
@@ -51,6 +52,17 @@ export default function App() {
       <Route path="/" element={<Inicio />} />
       <Route path="/login" element={<Login />} />
       <Route path="/no-autorizado" element={<NoAutorizado />} />
+      <Route element={<RutaProtegida />}>
+        <Route path="/cambiar-contrasena-temporal" element={
+          <main className="mx-auto grid min-h-screen w-full max-w-3xl content-center gap-4 p-5">
+            <div>
+              <h1 className="text-xl font-bold">Actualiza tu contraseña temporal</h1>
+              <p className="mt-1 text-sm text-tenue">Debes cambiarla antes de acceder al sistema.</p>
+            </div>
+            <CambiarMiContrasena primerAcceso />
+          </main>
+        } />
+      </Route>
 
       <Route element={<RutaProtegida roles={[ROLES.ALUMNO]} />}>
         <Route path="/alumno" element={<LayoutPrincipal />}>

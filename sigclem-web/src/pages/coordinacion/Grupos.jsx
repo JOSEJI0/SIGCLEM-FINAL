@@ -19,7 +19,9 @@ import { useVisorDocumento } from '../../components/VisorDocumento';
 
 const pesos = (v) => (v == null ? '' : Number(v).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' }));
 const DURACIONES = [[60, '1 h'], [90, '1 h 30'], [120, '2 h'], [180, '3 h'], [240, '4 h']];
-const etiquetaGrupo = (grupo) => `${grupo.intensivo ? 'Intensivo' : grupo.nivel} · Grupo ${grupo.clave}`;
+const nombreNivelesGrupo = (grupo) => (grupo.intensivo ? 'Intensivo · 10 niveles'
+  : [grupo.nivel, grupo.nivelSecundario].filter(Boolean).join(' + '));
+const etiquetaGrupo = (grupo) => `${nombreNivelesGrupo(grupo)} · Grupo ${grupo.clave}`;
 
 function fechaLocal() {
   const hoy = new Date();
@@ -77,12 +79,18 @@ export default function Grupos({ soloLectura = false }) {
 
   const nuevoGrupo = () => setEditor({
     id: null, clave: '', cupo: '30', idPeriodo, intensivo: false,
-    idNivel: String(catalogos.niveles[0]?.id ?? ''), idModalidad: String(catalogos.modalidades[0]?.id ?? ''),
+    idNivel: String(catalogos.niveles[0]?.id ?? ''), idNivelSecundario: '',
+    fechaInicioCaptura: catalogos.periodos.find((p) => String(p.id) === idPeriodo)?.fechaInicio ?? '',
+    fechaFinCaptura: catalogos.periodos.find((p) => String(p.id) === idPeriodo)?.fechaFin ?? '',
+    idModalidad: String(catalogos.modalidades[0]?.id ?? ''),
     idAula: String(catalogos.aulas[0]?.id ?? ''), idFacilitador: String(catalogos.facilitadores.find((f) => f.activo)?.id ?? ''),
     horarios: [],
   });
   const editarExistente = (g) => setEditor({
-    id: g.id, clave: g.clave, cupo: String(g.cupo), idPeriodo: String(g.idPeriodo), idNivel: String(g.idNivel),
+    id: g.id, clave: g.clave, cupo: g.cupo == null ? '' : String(g.cupo), idPeriodo: String(g.idPeriodo),
+    idNivel: String(g.idNivel), idNivelSecundario: g.idNivelSecundario == null ? '' : String(g.idNivelSecundario),
+    fechaInicioCaptura: g.fechaInicioCaptura ?? g.fechaInicioPeriodo,
+    fechaFinCaptura: g.fechaFinCaptura ?? g.fechaFinPeriodo,
     intensivo: g.intensivo,
     idModalidad: String(g.idModalidad), idAula: String(g.idAula), idFacilitador: String(g.idFacilitador),
     inscritos: g.alumnosInscritos,
@@ -91,7 +99,7 @@ export default function Grupos({ soloLectura = false }) {
 
   const sesionesPeriodo = grupos.flatMap((g) => g.horarios.map((h, i) => ({
     clave: `${g.id}-${i}`, dia: h.diaSemana, inicio: h.horaInicio, fin: h.horaFin,
-    titulo: `${g.intensivo ? 'Intensivo' : g.nivel} ${g.clave}`, detalle: `${g.aula} · ${g.facilitador}`, color: colorNivel(g.nivelNumero),
+    titulo: `${nombreNivelesGrupo(g)} ${g.clave}`, detalle: `${g.aula} · ${g.facilitador}`, color: colorNivel(g.nivelNumero),
     onClick: () => setPanelAlumnos(g),
   })));
 
@@ -138,7 +146,7 @@ export default function Grupos({ soloLectura = false }) {
             <article key={g.id} className="flex flex-col gap-3 rounded-[10px] border border-linea bg-white p-4">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <div className={`mb-1 inline-block rounded px-2 py-0.5 text-[11px] font-semibold ${colorNivel(g.nivelNumero)}`}>{g.intensivo ? '10 niveles' : `Nivel ${g.nivelNumero}`}</div>
+                  <div className={`mb-1 inline-block rounded px-2 py-0.5 text-[11px] font-semibold ${colorNivel(g.nivelNumero)}`}>{g.intensivo ? '10 niveles' : g.nivelSecundario ? `Niveles ${g.nivelNumero}–${g.nivelNumeroSecundario}` : `Nivel ${g.nivelNumero}`}</div>
                   <div className="font-semibold">{etiquetaGrupo(g)}</div>
                   <div className="text-xs text-tenue">{g.modalidad} · {g.aula}</div>
                   <div className="text-xs text-tenue">{g.facilitador}</div>
@@ -152,10 +160,14 @@ export default function Grupos({ soloLectura = false }) {
               </ul>
               <div>
                 <div className="mb-1 flex justify-between text-xs text-tenue">
-                  <span>{g.alumnosInscritos} de {g.cupo} alumnos</span>
+                  <span>{g.cupo == null ? 'Cupo pendiente' : `${g.alumnosInscritos} de ${g.cupo} alumnos`}</span>
                   {g.interesados > 0 && <span className="font-semibold text-aviso">{g.interesados} interesado(s)</span>}
                 </div>
-                <div className="h-1.5 rounded bg-neutro-fondo"><div className="h-1.5 rounded bg-marino" style={{ width: `${Math.min(100, (g.alumnosInscritos / g.cupo) * 100)}%` }} /></div>
+                {g.cupo != null && (
+                  <div className="h-1.5 rounded bg-neutro-fondo">
+                    <div className="h-1.5 rounded bg-marino" style={{ width: `${Math.min(100, (g.alumnosInscritos / g.cupo) * 100)}%` }} />
+                  </div>
+                )}
               </div>
               <div className="mt-auto flex flex-wrap gap-2 border-t border-linea pt-3">
                 <Boton className="flex-1" onClick={() => setPanelAlumnos(g)}><Users className="h-3.5 w-3.5" /> Alumnos y acta</Boton>
@@ -200,12 +212,12 @@ export default function Grupos({ soloLectura = false }) {
       )}
       {!esSoloLectura && borrar && (
         <ConfirmacionDoble titulo="Eliminar grupo" palabra="ELIMINAR" textoBoton="Eliminar grupo"
-          mensaje={<>Se eliminará el grupo <b>{borrar.nivel} {borrar.clave}</b> con sus horarios y las elecciones de los alumnos interesados.</>}
+          mensaje={<>Se eliminará el grupo <b>{nombreNivelesGrupo(borrar)} {borrar.clave}</b> con sus horarios y las elecciones de los alumnos interesados.</>}
           onCerrar={() => setBorrar(null)}
           onConfirmar={async () => {
             try {
               await eliminarGrupo(borrar.id);
-              setAviso(`Grupo ${borrar.nivel} ${borrar.clave} eliminado.`);
+              setAviso(`Grupo ${nombreNivelesGrupo(borrar)} ${borrar.clave} eliminado.`);
               await cargarGrupos();
             } catch (e) {
               setError(mensajeError(e));
@@ -224,7 +236,17 @@ function EditorGrupo({ editor, setEditor, catalogos, onGuardado }) {
   const [ocupados, setOcupados] = useState([]);
   const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
-  const cambiar = (campo) => (e) => setEditor({ ...editor, [campo]: campo === 'clave' ? e.target.value.toUpperCase() : e.target.value });
+  const cambiar = (campo) => (e) => {
+    const valor = campo === 'clave' ? e.target.value.toUpperCase() : e.target.value;
+    if (campo === 'idPeriodo') {
+      const periodo = catalogos.periodos.find((p) => String(p.id) === valor);
+      setEditor({ ...editor, idPeriodo: valor, fechaInicioCaptura: periodo?.fechaInicio ?? '', fechaFinCaptura: periodo?.fechaFin ?? '' });
+    } else if (campo === 'idNivel') {
+      setEditor({ ...editor, idNivel: valor, idNivelSecundario: '' });
+    } else {
+      setEditor({ ...editor, [campo]: valor });
+    }
+  };
 
   // Horarios del mismo periodo que usan el aula o el facilitador elegidos (para evitar traslapes).
   useEffect(() => {
@@ -239,18 +261,19 @@ function EditorGrupo({ editor, setEditor, catalogos, onGuardado }) {
     ))
     .flatMap((g) => g.horarios.map((h, i) => ({
       clave: `o-${g.id}-${i}`, dia: h.diaSemana, inicio: h.horaInicio, fin: h.horaFin,
-      titulo: `Ocupado: ${g.intensivo ? 'Intensivo' : g.nivel} ${g.clave}`,
+      titulo: `Ocupado: ${nombreNivelesGrupo(g)} ${g.clave}`,
       detalle: String(g.idFacilitador) === editor.idFacilitador
         ? `Facilitador ${g.facilitador}` : `Aula ${g.aula}`,
       color: 'bg-neutro-fondo border-neutro text-tenue', atenuada: true,
     }))), [ocupados, editor.id, editor.idAula, editor.idFacilitador]);
 
   const nivel = catalogos.niveles.find((n) => String(n.id) === editor.idNivel);
+  const nivelSecundario = catalogos.niveles.find((n) => String(n.id) === editor.idNivelSecundario);
   const modalidadVirtual = catalogos.modalidades.find((m) => m.nombre.toLowerCase() === 'intensivo virtual');
   const aulaVirtual = catalogos.aulas.find((a) => a.nombre.toLowerCase() === 'virtual');
   const propias = editor.horarios.map((h, i) => ({
     clave: `p-${i}`, dia: h.diaSemana, inicio: h.horaInicio, fin: h.horaFin,
-    titulo: `${editor.intensivo ? 'Intensivo' : nivel?.nombre ?? 'Grupo'} ${editor.clave || ''}`, detalle: 'Clic para quitar',
+    titulo: `${editor.intensivo ? 'Intensivo · 10 niveles' : [nivel?.nombre, nivelSecundario?.nombre].filter(Boolean).join(' + ') || 'Grupo'} ${editor.clave || ''}`, detalle: 'Clic para quitar',
     color: colorNivel(nivel?.numero), onClick: () => setEditor({ ...editor, horarios: editor.horarios.filter((_, j) => j !== i) }),
   }));
 
@@ -270,7 +293,10 @@ function EditorGrupo({ editor, setEditor, catalogos, onGuardado }) {
     setGuardando(true);
     setError('');
     const datos = {
-      clave: editor.clave, cupo: Number(editor.cupo), idNivel: Number(editor.idNivel), idPeriodo: Number(editor.idPeriodo),
+      clave: editor.clave, cupo: Number(editor.cupo), idNivel: Number(editor.idNivel),
+      idNivelSecundario: editor.idNivelSecundario ? Number(editor.idNivelSecundario) : null,
+      fechaInicioCaptura: editor.fechaInicioCaptura, fechaFinCaptura: editor.fechaFinCaptura,
+      idPeriodo: Number(editor.idPeriodo),
       idModalidad: Number(editor.idModalidad), idAula: Number(editor.idAula), idFacilitador: Number(editor.idFacilitador),
       intensivo: Boolean(editor.intensivo),
       horarios: editor.horarios.map((h) => ({ diaSemana: Number(h.diaSemana), horaInicio: h.horaInicio, horaFin: h.horaFin })),
@@ -278,8 +304,10 @@ function EditorGrupo({ editor, setEditor, catalogos, onGuardado }) {
     try {
       if (editor.id) await editarGrupo(editor.id, datos); else await abrirGrupo(datos);
       await onGuardado(editor.id ? 'Grupo actualizado.' : editor.intensivo
-        ? 'Grupo Intensivo virtual abierto; coordinación puede asignar alumnos de cualquier nivel.'
-        : 'Grupo abierto: ya aparece en los cursos disponibles de los alumnos de ese nivel.');
+        ? 'Grupo Intensivo abierto para los diez niveles; coordinación puede asignar alumnos de cualquier nivel.'
+        : editor.idNivelSecundario
+          ? `Grupo de ${nivel?.nombre} y ${nivelSecundario?.nombre} abierto con un pago y una calificación por nivel.`
+          : `Grupo de ${nivel?.nombre} abierto.`);
     } catch (err) {
       setError(mensajeError(err));
     } finally {
@@ -300,11 +328,13 @@ function EditorGrupo({ editor, setEditor, catalogos, onGuardado }) {
               onChange={(e) => setEditor({
                 ...editor,
                 intensivo: e.target.checked,
+                idNivelSecundario: '',
+                ...(!e.target.checked ? { idNivel: String(catalogos.niveles[0]?.id ?? '') } : {}),
                 ...(e.target.checked && modalidadVirtual && aulaVirtual
                   ? { idModalidad: String(modalidadVirtual.id), idAula: String(aulaVirtual.id) }
                   : {}),
               })} />
-            Curso Intensivo virtual (ruta de Básico 1 a Intermedio 5)
+            Curso Intensivo virtual (abarca los 10 niveles)
           </label>
           <div className="grid grid-cols-2 gap-3">
             <Campo etiqueta="Clave (A–Z)" id="clave">
@@ -319,10 +349,33 @@ function EditorGrupo({ editor, setEditor, catalogos, onGuardado }) {
               {opciones(catalogos.periodos.filter((p) => p.fechaFin >= fechaLocal() || String(p.id) === editor.idPeriodo), (p) => p.nombre)}
             </select>
           </Campo>
+          <div className="grid grid-cols-2 gap-3">
+            <Campo etiqueta="Apertura de captura" id="fechaInicioCaptura">
+              <input id="fechaInicioCaptura" type="date" required className={claseEntrada}
+                min={catalogos.periodos.find((p) => String(p.id) === editor.idPeriodo)?.fechaInicio}
+                max={catalogos.periodos.find((p) => String(p.id) === editor.idPeriodo)?.fechaFin}
+                value={editor.fechaInicioCaptura} onChange={cambiar('fechaInicioCaptura')} />
+            </Campo>
+            <Campo etiqueta="Cierre de captura" id="fechaFinCaptura">
+              <input id="fechaFinCaptura" type="date" required className={claseEntrada}
+                min={editor.fechaInicioCaptura || catalogos.periodos.find((p) => String(p.id) === editor.idPeriodo)?.fechaInicio}
+                max={catalogos.periodos.find((p) => String(p.id) === editor.idPeriodo)?.fechaFin}
+                value={editor.fechaFinCaptura} onChange={cambiar('fechaFinCaptura')} />
+            </Campo>
+          </div>
           {!editor.intensivo && <Campo etiqueta="Nivel" id="ed-nivel">
             <select id="ed-nivel" required disabled={conAlumnos} className={claseEntrada} value={editor.idNivel} onChange={cambiar('idNivel')}>
               {opciones(catalogos.niveles, (n) => `${n.numero}. ${n.nombre} (${n.nivelMcer})`)}
             </select>
+          </Campo>}
+          {!editor.intensivo && <Campo etiqueta="Segundo nivel (opcional)" id="ed-nivel-secundario">
+            <select id="ed-nivel-secundario" disabled={conAlumnos} className={claseEntrada}
+              value={editor.idNivelSecundario} onChange={cambiar('idNivelSecundario')}>
+              <option value="">Un solo nivel</option>
+              {opciones(catalogos.niveles.filter((n) => n.numero === (nivel?.numero ?? 0) + 1),
+                (n) => `${n.numero}. ${n.nombre} (${n.nivelMcer})`)}
+            </select>
+            <p className="mt-1 text-xs text-tenue">Al combinar niveles consecutivos, cada nivel tendrá su propio pago y calificación.</p>
           </Campo>}
           {!editor.intensivo && <Campo etiqueta="Modalidad" id="ed-modalidad">
             <select id="ed-modalidad" required className={claseEntrada} value={editor.idModalidad} onChange={cambiar('idModalidad')}>
@@ -418,7 +471,7 @@ function PanelAlumnos({ grupo, niveles, onCerrar, onEditar, soloLectura = false 
   const verDocumento = useVisorDocumento();
   const verActa = () => verDocumento({
     titulo: `Acta de calificaciones · ${etiquetaGrupo(g)} · ${g.periodo}`,
-    nombre: `acta-${(g.intensivo ? 'intensivo' : g.nivel).replace(/\s+/g, '-')}-${g.clave}`,
+    nombre: `acta-${(g.intensivo ? 'intensivo' : [g.nivel, g.nivelSecundario].filter(Boolean).join('-')).replace(/\s+/g, '-')}-${g.clave}`,
     cargar: () => descargarActaPdf(g.id),
   });
 
@@ -428,8 +481,10 @@ function PanelAlumnos({ grupo, niveles, onCerrar, onEditar, soloLectura = false 
   const cerrada = g.estatusActa === 'Cerrada';
   const inscritosNc = new Set((detalle?.inscritos || []).map((a) => a.numeroControl));
   const inscritos = detalle?.inscritos || [];
-  const todasCapturadas = inscritos.length > 0 && inscritos.every((a) => a.calificacionFinal != null);
-  const sinLiquidar = inscritos.filter((a) => a.estatusPago !== 'Liquidada');
+  const todasCapturadas = inscritos.length > 0 && inscritos.every((a) => a.calificacionFinal != null
+    && (!g.idNivelSecundario || a.calificacionSecundaria != null));
+  const sinLiquidar = inscritos.filter((a) => a.estatusPago !== 'Liquidada'
+    || g.idNivelSecundario && a.estatusPagoSecundario !== 'Liquidada');
   const nombrePorNc = Object.fromEntries(inscritos.map((a) => [a.numeroControl, a.nombreCompleto]));
 
   return (
@@ -455,14 +510,19 @@ function PanelAlumnos({ grupo, niveles, onCerrar, onEditar, soloLectura = false 
                   <li key={a.numeroControl} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[13px] font-semibold">{a.nombreCompleto}</div>
-                      <div className="text-xs text-tenue">{a.numeroControl}{a.calificacionFinal != null ? ` · Calificación ${a.calificacionFinal}` : ''}
+                      <div className="text-xs text-tenue">{a.numeroControl}{a.calificacionFinal != null ? ` · ${g.nivel}: ${a.calificacionFinal}` : ''}
+                        {g.idNivelSecundario && a.calificacionSecundaria != null ? ` · ${g.nivelSecundario}: ${a.calificacionSecundaria}` : ''}
                         {a.nivelAcreditado ? ` · Nivel ${a.nivelAcreditado}` : ''}</div>
                     </div>
                     <div className="text-right text-xs">
                       <Insignia estatus={a.estatusPago} />
                       {a.saldoPendiente > 0 && <div className="mt-0.5 text-tenue">Saldo {pesos(a.saldoPendiente)}</div>}
+                      {g.idNivelSecundario && <>
+                        <div className="mt-1"><Insignia estatus={a.estatusPagoSecundario} /></div>
+                        {a.saldoPendienteSecundario > 0 && <div className="mt-0.5 text-tenue">Saldo {pesos(a.saldoPendienteSecundario)}</div>}
+                      </>}
                     </div>
-                    {!soloLectura && a.avancePendiente && (
+                    {!soloLectura && (a.avancePendiente || a.avancePendienteSecundario) && (
                       <div className="flex w-full items-center justify-end gap-2 border-t border-dashed border-linea pt-2">
                         <span className="mr-auto text-xs text-tenue">Sin pago al cerrar el acta</span>
                         <Insignia estatus="Nivel pendiente" />
@@ -483,7 +543,7 @@ function PanelAlumnos({ grupo, niveles, onCerrar, onEditar, soloLectura = false 
             {!cerrada && !soloLectura && (
               <form className="mt-4 flex gap-2" onSubmit={(e) => { e.preventDefault(); if (numeroControl.trim()) asignar(numeroControl.trim().toUpperCase()); }}>
                 <input list="candidatos-grupo" className={claseEntrada}
-                  placeholder={g.intensivo ? 'Número de control (cualquier nivel)' : `Número de control (alumnos de ${g.nivel})`}
+                  placeholder={g.intensivo ? 'Número de control (cualquier nivel)' : `Número de control (alumnos de ${nombreNivelesGrupo(g)})`}
                   value={numeroControl} onChange={(e) => setNumeroControl(e.target.value.toUpperCase())} />
                 <datalist id="candidatos-grupo">
                   {candidatos.filter((c) => !inscritosNc.has(c.numeroControl)).map((c) => (
@@ -597,10 +657,10 @@ function SeccionActa({ grupo, cerrada, todasCapturadas, sinLiquidar, ocupado, on
         </div>
       </div>
       <p className="mt-1 text-xs text-tenue">
-        {!todasCapturadas ? "El facilitador aún no captura todas las calificaciones; puedes descargar el acta preliminar."
+        {!todasCapturadas ? "El facilitador aún no captura todas las calificaciones por nivel; puedes descargar el acta preliminar."
           : grupo.intensivo ? "Todas las calificaciones están capturadas; coordinación debe seleccionar el nivel de cada alumno y cerrar el acta."
           : sinLiquidar.length === 0 ? "Todos liquidaron su curso; el facilitador o coordinación pueden cerrar el acta."
-            : `${sinLiquidar.length} alumno(s) sin liquidar: conservarán su calificación y su nivel quedará pendiente hasta asignarlo.`}
+            : `${sinLiquidar.length} alumno(s) con uno o más niveles sin liquidar: conservarán las calificaciones y quedarán pendientes los avances de esos niveles.`}
       </p>
     </div>
   );
@@ -625,7 +685,7 @@ function ModalObservacion({ grupo, observar, alumnos, niveles, sinLiquidar, onCa
         <div className="text-[13px]">
           <p>Se cerrará el acta de <b>{etiquetaGrupo(grupo)}</b>. {grupo.intensivo
             ? 'Elige el nivel que acreditará la calificación final de cada alumno.'
-            : 'Quienes liquidaron su curso reciben su nivel ahora.'}</p>
+            : 'Se registrará por separado el avance de cada nivel que ya esté liquidado.'}</p>
           {grupo.intensivo && <div className="mt-3 grid max-h-52 gap-2 overflow-y-auto">
             {alumnos.map((alumno) => (
               <Campo key={alumno.numeroControl} etiqueta={`${alumno.nombreCompleto} · ${alumno.numeroControl}`}

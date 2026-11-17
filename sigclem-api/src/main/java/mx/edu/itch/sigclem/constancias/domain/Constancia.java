@@ -64,6 +64,9 @@ public class Constancia {
     @Column(name = "archivo_pdf", length = 255)
     private String archivoPdf;
 
+    @Column(name = "archivo_word", length = 255)
+    private String archivoWord;
+
     @Column(name = "motivo_rechazo", length = 200)
     private String motivoRechazo;
 }

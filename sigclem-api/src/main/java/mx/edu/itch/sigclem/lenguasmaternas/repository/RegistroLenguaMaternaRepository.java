@@ -16,6 +16,10 @@ public interface RegistroLenguaMaternaRepository extends JpaRepository<RegistroL
     @EntityGraph(attributePaths = {"alumno", "lengua", "usuarioValida"})
     List<RegistroLenguaMaterna> findAllByOrderByFechaRegistroDescIdDesc();
 
+    @EntityGraph(attributePaths = {"alumno", "alumno.carrera", "lengua"})
+    List<RegistroLenguaMaterna> findByFechaRegistroBetweenOrderByFechaRegistroDescIdDesc(
+            java.time.LocalDate desde, java.time.LocalDate hasta);
+
     @EntityGraph(attributePaths = {"alumno", "lengua", "usuarioValida"})
     Optional<RegistroLenguaMaterna> findConRelacionesById(Integer id);
 

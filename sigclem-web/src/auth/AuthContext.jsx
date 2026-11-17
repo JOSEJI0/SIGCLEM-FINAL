@@ -60,12 +60,22 @@ export function AuthProvider({ children }) {
     const nueva = {
       token: datos.token,
       perfil: datos.perfil,
+      requiereCambioContrasena: Boolean(datos.requiereCambioContrasena),
       expiraEn: Date.now() + datos.expiraEnSegundos * 1000,
     };
     localStorage.setItem(CLAVE_SESION, JSON.stringify(nueva));
     setExpirada(false);
     setSesion(nueva);
-    return nueva.perfil;
+    return nueva;
+  }, []);
+
+  const completarCambioContrasena = useCallback(() => {
+    setSesion((actual) => {
+      if (!actual) return actual;
+      const nueva = { ...actual, requiereCambioContrasena: false };
+      localStorage.setItem(CLAVE_SESION, JSON.stringify(nueva));
+      return nueva;
+    });
   }, []);
 
   const valor = useMemo(
@@ -73,12 +83,13 @@ export function AuthProvider({ children }) {
       sesion,
       perfil: sesion?.perfil ?? null,
       login,
+      completarCambioContrasena,
       cerrarSesion,
       entrarComo,
       modoPruebas: Boolean(sesion?.usuarioPrueba),
       expirada,
     }),
-    [sesion, login, cerrarSesion, entrarComo, expirada],
+    [sesion, login, completarCambioContrasena, cerrarSesion, entrarComo, expirada],
   );
   return <AuthContext.Provider value={valor}>{children}</AuthContext.Provider>;
 }

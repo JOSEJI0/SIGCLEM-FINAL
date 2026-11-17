@@ -61,6 +61,24 @@ class FacilitadorServiceTest {
     }
 
     @Test
+    void registrarConCambioObligatorioMarcaLaCuentaTemporal() {
+        when(facilitadorRepository.existsByCorreoIgnoreCase("docente@itch.edu.mx")).thenReturn(false);
+        when(usuarioRepository.existsByNombreUsuario("docente@itch.edu.mx")).thenReturn(false);
+        when(rolRepository.findByNombre("Facilitador")).thenReturn(Optional.of(new Rol()));
+        when(passwordEncoder.encode(any())).thenAnswer(invocacion -> "hash:" + invocacion.getArgument(0));
+        when(usuarioRepository.save(any(Usuario.class))).thenAnswer(invocacion -> invocacion.getArgument(0));
+        when(facilitadorRepository.save(any(Facilitador.class))).thenAnswer(invocacion -> invocacion.getArgument(0));
+
+        var creado = service.registrarConCambioObligatorio(new FacilitadorRequest(
+                "Ana", "López", "García", "docente@itch.edu.mx", null, null));
+
+        assertTrue(creado.contrasenaTemporal() != null);
+        var usuarioCaptor = org.mockito.ArgumentCaptor.forClass(Usuario.class);
+        verify(usuarioRepository).save(usuarioCaptor.capture());
+        assertTrue(usuarioCaptor.getValue().isRequiereCambioContrasena());
+    }
+
+    @Test
     void registrarConContrasenaAsignadaPorCoordinacionNoLaDevuelve() {
         when(facilitadorRepository.existsByCorreoIgnoreCase("docente@itch.edu.mx")).thenReturn(false);
         when(usuarioRepository.existsByNombreUsuario("docente@itch.edu.mx")).thenReturn(false);

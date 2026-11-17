@@ -18,7 +18,8 @@ const celda = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
 /** Descarga el reporte como CSV (se abre directamente en Excel; el BOM conserva los acentos). */
 function descargarExcel(reporte) {
   const filas = [
-    ['Reporte académico', reporte.periodo.nombre],
+    ['Reporte académico detallado', reporte.periodo.nombre],
+    ['Periodo del', reporte.periodo.fechaInicio, 'al', reporte.periodo.fechaFin],
     [],
     ['Resumen'],
     ['Grupos', reporte.grupos], ['Actas cerradas', reporte.actasCerradas], ['Inscripciones', reporte.alumnosInscritos],
@@ -35,6 +36,35 @@ function descargarExcel(reporte) {
     ['Carrera', 'Nivel', 'Inscripciones', 'Promedio publicado', 'Acreditados', 'No acreditados', 'Pendientes'],
     ...(reporte.porCarreraYNivel || []).map((f) => [f.carrera, `${f.numeroNivel}. ${f.nivel}`, f.alumnosInscritos,
       f.promedioPublicado == null ? '' : f.promedioPublicado.toFixed(1), f.acreditados, f.noAcreditados, f.calificacionesPendientes]),
+    [],
+    ['Detalle por grupo y alumno'],
+    ['Grupo', 'Curso', 'Modalidad', 'Aula', 'Facilitador', 'Horario', 'Cupo', 'Inscritos', 'Acta',
+      'Inicio captura', 'Fin captura', 'Fecha de cierre',
+      'Control', 'Alumno', 'Carrera', 'Semestre', 'Sexo', 'Estatus alumno', 'Calificación', 'Resultado',
+      'Calificación nivel secundario', 'Resultado nivel secundario'],
+    ...(reporte.porGrupo || []).flatMap((grupo) => grupo.alumnos.length
+      ? grupo.alumnos.map((alumno) => [
+        grupo.clave, grupo.curso, grupo.modalidad, grupo.aula, grupo.facilitador, grupo.horarios.join('; '),
+        grupo.cupo ?? '', grupo.alumnosInscritos, grupo.estatusActa,
+        grupo.fechaInicioCaptura ?? '', grupo.fechaFinCaptura ?? '', grupo.fechaCierreActa ?? '',
+        alumno.numeroControl, alumno.nombreCompleto, alumno.carrera, alumno.semestre,
+        alumno.sexo === 'H' ? 'Hombre' : alumno.sexo === 'M' ? 'Mujer' : '',
+        alumno.estatusAlumno,
+        alumno.calificacion ?? '', alumno.resultado,
+        alumno.calificacionSecundaria ?? '', alumno.resultadoSecundario ?? '',
+      ])
+      : [[grupo.clave, grupo.curso, grupo.modalidad, grupo.aula, grupo.facilitador, grupo.horarios.join('; '),
+        grupo.cupo ?? '', 0, grupo.estatusActa, grupo.fechaInicioCaptura ?? '', grupo.fechaFinCaptura ?? '',
+        grupo.fechaCierreActa ?? '', '', 'Sin alumnos inscritos']]),
+    [],
+    ['Estudiantes con lengua materna registrados en el periodo'],
+    ['Número de control', 'Nombre', 'Carrera', 'Semestre', 'Sexo', 'Estatus del alumno', 'Lengua',
+      'Nivel de dominio', 'Estatus del registro', 'Fecha de registro'],
+    ...(reporte.alumnosLenguaMaterna || []).map((alumno) => [
+      alumno.numeroControl, alumno.nombreCompleto, alumno.carrera, alumno.semestre ?? '',
+      alumno.sexo === 'H' ? 'Hombre' : alumno.sexo === 'M' ? 'Mujer' : '',
+      alumno.estatusAlumno, alumno.lengua, alumno.nivelDominio ?? '', alumno.estatusRegistro, alumno.fechaRegistro,
+    ]),
   ];
   const csv = '\uFEFF' + filas.map((f) => f.map(celda).join(',')).join('\r\n');
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -45,6 +75,16 @@ function descargarExcel(reporte) {
   enlace.click();
   enlace.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function imprimirReporte() {
+  const detalles = [...document.querySelectorAll('details')];
+  const cerrados = detalles.filter((detalle) => !detalle.open);
+  detalles.forEach((detalle) => { detalle.open = true; });
+  window.addEventListener('afterprint', () => {
+    cerrados.forEach((detalle) => { detalle.open = false; });
+  }, { once: true });
+  window.print();
 }
 
 export default function Reportes() {
@@ -89,7 +129,7 @@ export default function Reportes() {
       <div className="flex flex-wrap items-end justify-between gap-3 print:hidden">
         <div>
           <h1 className="flex items-center gap-2 text-xl font-bold"><BarChart3 className="h-5 w-5" /> Reporte académico</h1>
-          <p className="mt-1 text-sm text-tenue">Inscripciones y resultados de cursos por periodo académico.</p>
+          <p className="mt-1 text-sm text-tenue">Resumen, resultados y detalle de grupos y alumnos por periodo académico.</p>
         </div>
         {periodos.length > 0 && (
           <div className="flex items-end gap-2">
@@ -104,7 +144,7 @@ export default function Reportes() {
             <Boton variante="secundario" type="button" className="no-imprimir" disabled={!reporte} onClick={() => descargarExcel(reporte)}>
               <FileSpreadsheet className="h-4 w-4" /> Excel
             </Boton>
-            <Boton variante="secundario" type="button" className="no-imprimir" disabled={!reporte} onClick={() => window.print()}
+            <Boton variante="secundario" type="button" className="no-imprimir" disabled={!reporte} onClick={imprimirReporte}
               title="Abre la impresión: elige «Guardar como PDF»">
               <FileDown className="h-4 w-4" /> PDF
             </Boton>
@@ -119,10 +159,19 @@ export default function Reportes() {
       {cargandoReporte && <Cargando texto="Generando reporte…" />}
       {reporte && !cargandoReporte && (
         <>
+          <Alerta tipo="info">
+            El resumen muestra alumnos únicos por separado de las inscripciones. En grupos de dos niveles, una misma
+            inscripción cuenta una vez en cada nivel. Las calificaciones y promedios solo se publican al cerrar el acta;
+            una calificación aprobatoria puede seguir pendiente de aplicar al avance si falta liquidar el curso.
+            El listado de lengua materna incluye los registros presentados dentro de las fechas del periodo, tengan o no
+            inscripción a un grupo de inglés.
+          </Alerta>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Tarjeta titulo="Grupos">
               <p className="text-2xl font-semibold">{reporte.grupos}</p>
-              <p className="mt-1 text-xs text-tenue">{reporte.actasCerradas} actas cerradas</p>
+              <p className="mt-1 text-xs text-tenue">
+                {reporte.actasCerradas} actas cerradas · {reporte.grupos - reporte.actasCerradas} por cerrar
+              </p>
             </Tarjeta>
             <Tarjeta titulo="Alumnado inscrito">
               <p className="text-2xl font-semibold">{reporte.alumnosInscritos}</p>
@@ -141,6 +190,107 @@ export default function Reportes() {
               </p>
             </Tarjeta>
           </div>
+
+          <Tarjeta titulo={`Detalle de grupos y alumnado · ${reporte.periodo.nombre}`} icono={FileSpreadsheet}
+            extra={`${(reporte.porGrupo || []).length} grupos · ${reporte.periodo.fechaInicio} al ${reporte.periodo.fechaFin}`}>
+            {!reporte.porGrupo?.length ? (
+              <p className="text-sm text-tenue">No hay grupos registrados en este periodo.</p>
+            ) : (
+              <div className="grid gap-2">
+                {reporte.porGrupo.map((grupo) => (
+                  <details key={grupo.id} className="rounded-lg border border-linea bg-white">
+                    <summary className="cursor-pointer list-none p-3 hover:bg-fondo">
+                      <span className="font-semibold">{grupo.clave} · {grupo.curso}</span>
+                      <span className="ml-2 text-sm text-tenue">{grupo.alumnosInscritos} alumnos · Acta: {grupo.estatusActa}</span>
+                    </summary>
+                    <div className="grid gap-3 border-t border-linea p-3">
+                      <dl className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                        <div><dt className="text-xs text-tenue">Modalidad</dt><dd>{grupo.modalidad}</dd></div>
+                        <div><dt className="text-xs text-tenue">Aula / plataforma</dt><dd>{grupo.aula}</dd></div>
+                        <div><dt className="text-xs text-tenue">Facilitador</dt><dd>{grupo.facilitador}</dd></div>
+                        <div><dt className="text-xs text-tenue">Cupo</dt><dd>{grupo.cupo ?? 'No especificado'} · {grupo.alumnosInscritos} inscritos</dd></div>
+                        <div><dt className="text-xs text-tenue">Horario</dt><dd>{grupo.horarios.length ? grupo.horarios.join(' · ') : 'Sin horario registrado'}</dd></div>
+                        <div><dt className="text-xs text-tenue">Periodo de captura</dt>
+                          <dd>{grupo.fechaInicioCaptura || '—'} al {grupo.fechaFinCaptura || '—'}</dd>
+                        </div>
+                        <div><dt className="text-xs text-tenue">Cierre de acta</dt>
+                          <dd>{grupo.fechaCierreActa || 'Sin cerrar'}{grupo.cerradaPor ? ` · ${grupo.cerradaPor}` : ''}</dd>
+                        </div>
+                        {grupo.observacionCierre && (
+                          <div className="sm:col-span-2 lg:col-span-4">
+                            <dt className="text-xs text-tenue">Observación de cierre</dt><dd>{grupo.observacionCierre}</dd>
+                          </div>
+                        )}
+                      </dl>
+                      {grupo.alumnos.length === 0 ? (
+                        <p className="text-sm text-tenue">Grupo sin alumnos inscritos.</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full min-w-[850px] text-left text-sm">
+                            <thead><tr className="border-b border-linea text-xs text-tenue">
+                              <th className="py-2 pr-3">Núm. control</th><th className="py-2 pr-3">Alumno</th>
+                              <th className="py-2 pr-3">Carrera</th><th className="py-2 pr-3">Sem.</th>
+                              <th className="py-2 pr-3">Sexo</th><th className="py-2 pr-3">Estatus</th>
+                              <th className="py-2 pr-3">Calificación</th><th className="py-2 pr-3">Resultado</th>
+                              {grupo.curso.includes(' + ') && <><th className="py-2 pr-3">Calif. secundaria</th><th className="py-2">Resultado secundario</th></>}
+                            </tr></thead>
+                            <tbody>{grupo.alumnos.map((alumno) => (
+                              <tr key={alumno.numeroControl} className="border-b border-linea last:border-0">
+                                <td className="py-2 pr-3">{alumno.numeroControl}</td>
+                                <td className="py-2 pr-3 font-medium">{alumno.nombreCompleto}</td>
+                                <td className="py-2 pr-3">{alumno.carrera}</td>
+                                <td className="py-2 pr-3">{alumno.semestre ?? '—'}</td>
+                                <td className="py-2 pr-3">{alumno.sexo === 'H' ? 'Hombre' : alumno.sexo === 'M' ? 'Mujer' : '—'}</td>
+                                <td className="py-2 pr-3">{alumno.estatusAlumno}</td>
+                                <td className="py-2 pr-3">{alumno.calificacion ?? '—'}</td>
+                                <td className="py-2 pr-3">{alumno.resultado}</td>
+                                {grupo.curso.includes(' + ') && <>
+                                  <td className="py-2 pr-3">{alumno.calificacionSecundaria ?? '—'}</td>
+                                  <td className="py-2">{alumno.resultadoSecundario ?? '—'}</td>
+                                </>}
+                              </tr>
+                            ))}</tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                ))}
+              </div>
+            )}
+          </Tarjeta>
+
+          <Tarjeta titulo={`Estudiantes con lengua materna · ${reporte.periodo.nombre}`} icono={FileSpreadsheet}
+            extra={`${(reporte.alumnosLenguaMaterna || []).length} registros`}>
+            {!reporte.alumnosLenguaMaterna?.length ? (
+              <p className="text-sm text-tenue">No hay registros de lengua materna dentro de las fechas de este periodo.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[850px] text-left text-sm">
+                  <thead><tr className="border-b border-linea text-xs text-tenue">
+                    <th className="py-2 pr-3">Núm. control</th><th className="py-2 pr-3">Alumno</th>
+                    <th className="py-2 pr-3">Carrera</th><th className="py-2 pr-3">Sem.</th>
+                    <th className="py-2 pr-3">Sexo</th><th className="py-2 pr-3">Lengua</th>
+                    <th className="py-2 pr-3">Nivel de dominio</th><th className="py-2 pr-3">Registro</th>
+                    <th className="py-2">Estatus</th>
+                  </tr></thead>
+                  <tbody>{reporte.alumnosLenguaMaterna.map((alumno, indice) => (
+                    <tr key={`${alumno.numeroControl}-${alumno.lengua}-${indice}`} className="border-b border-linea last:border-0">
+                      <td className="py-2 pr-3">{alumno.numeroControl}</td>
+                      <td className="py-2 pr-3 font-medium">{alumno.nombreCompleto}</td>
+                      <td className="py-2 pr-3">{alumno.carrera}</td>
+                      <td className="py-2 pr-3">{alumno.semestre ?? '—'}</td>
+                      <td className="py-2 pr-3">{alumno.sexo === 'H' ? 'Hombre' : alumno.sexo === 'M' ? 'Mujer' : '—'}</td>
+                      <td className="py-2 pr-3">{alumno.lengua}</td>
+                      <td className="py-2 pr-3">{alumno.nivelDominio || '—'}</td>
+                      <td className="py-2 pr-3">{alumno.fechaRegistro}</td>
+                      <td className="py-2">{alumno.estatusRegistro}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            )}
+          </Tarjeta>
 
           <Tarjeta titulo={`Detalle por nivel · ${reporte.periodo.nombre}`} icono={BarChart3}
             extra={`${reporte.calificacionesPendientes} calificaciones pendientes`}>

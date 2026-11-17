@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Check, FileCheck2, Languages, Plus, X } from 'lucide-react';
+import { Check, FileCheck2, Languages, Plus, RotateCcw, X } from 'lucide-react';
 import {
   cambiarEstatusLenguaMaterna,
   crearLenguaMaterna,
@@ -26,6 +26,8 @@ export default function LenguasMaternas({ soloLectura = false }) {
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
   const [subir, setSubir] = useState(null);
+  const [rechazo, setRechazo] = useState(null);
+  const [validacion, setValidacion] = useState(null);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -60,15 +62,25 @@ export default function LenguasMaternas({ soloLectura = false }) {
     }
   }
 
-  async function revisar(registro, estatus) {
+  async function revisar(registro, solicitud) {
     setError('');
     setAviso('');
     try {
-      await cambiarEstatusLenguaMaterna(registro.id, estatus);
-      setAviso(`Registro de ${registro.nombreAlumno} ${estatus.toLowerCase()}.`);
+      await cambiarEstatusLenguaMaterna(registro.id, solicitud);
+      setRechazo(null);
+      setValidacion(null);
+      setAviso(registro.estatus === 'Validado' && solicitud.estatus === 'Validado'
+        ? `Registro de ${registro.nombreAlumno} validado nuevamente.`
+        : `Registro de ${registro.nombreAlumno} ${solicitud.estatus.toLowerCase()}.`);
       await cargar();
     } catch (e) {
-      setError(mensajeError(e));
+      if (solicitud.estatus === 'Rechazado') {
+        setRechazo((actual) => actual ? { ...actual, error: mensajeError(e) } : actual);
+      } else if (solicitud.estatus === 'Validado' && solicitud.folio) {
+        setValidacion((actual) => actual ? { ...actual, error: mensajeError(e) } : actual);
+      } else {
+        setError(mensajeError(e));
+      }
     }
   }
 
@@ -77,6 +89,20 @@ export default function LenguasMaternas({ soloLectura = false }) {
   nombre: `lengua-${registro.id}-${tipo}`,
   cargar: () => descargarDocumentoLenguaMaterna(registro.id, tipo),
   });
+
+  async function descargarConstancia(registro) {
+    try {
+      const blob = await descargarDocumentoLenguaMaterna(registro.id, 'constancia');
+      const url = URL.createObjectURL(blob);
+      const enlace = document.createElement('a');
+      enlace.href = url;
+      enlace.download = `constancia-lengua-materna-${registro.folioConstancia}.docx`;
+      enlace.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      setError(mensajeError(e));
+    }
+  }
 
   function obtenerDocumento(registro) {
     verDocumento({
@@ -136,17 +162,47 @@ export default function LenguasMaternas({ soloLectura = false }) {
                   <td className="py-3 pr-3"><Insignia estatus={registro.estatus} /></td>
                   <td className="py-3">
                     <div className="flex flex-wrap gap-2">
-                      <DocumentosLengua registro={registro} onVer={ver} />
+                      {registro.motivoRechazo && (
+                        <div className="w-full rounded-md bg-aviso-fondo p-2 text-xs text-[#7A5210]">
+                          <b>Documento rechazado:</b> {{
+                            curp: 'CURP', domicilio: 'Comprobante de domicilio', ine: 'INE',
+                          }[registro.documentoRechazado] || 'No especificado'}.
+                          <br /><b>Motivo:</b> {registro.motivoRechazo}
+                        </div>
+                      )}
+                      <DocumentosLengua registro={registro} onVer={ver} onDescargar={descargarConstancia} />
+                      {registro.folioConstancia && (
+                        <span className="text-xs text-tenue">Constancia Word · folio {registro.folioConstancia}</span>
+                      )}
+                      {!soloLectura && ['Pendiente', 'Validado'].includes(registro.estatus) && (
+                        <Boton variante="secundario" type="button" className="mt-2"
+                          onClick={() => setSubir({ registro, intercultural: null, constancia: null, error: '' })}>
+                          Subir doc. intercultural y constancia
+                        </Boton>
+                      )}
                       {!soloLectura && registro.estatus === 'Pendiente' && (
                         <>
-                        <Boton variante="secundario" type="button" className="mt-2" onClick={() => setSubir({ registro, intercultural: null, constancia: null, error: '' })}>
-  Subir doc. intercultural y constancia
-</Boton>
-                          <Boton variante="exito" type="button" onClick={() => revisar(registro, 'Validado')}
+                          <Boton variante="exito" type="button" disabled={!registro.tieneIntercultural}
+                            onClick={() => setValidacion({ registro, folio: '', error: '' })}
                             aria-label={`Validar registro de ${registro.nombreAlumno}`}><Check className="h-4 w-4" /> Validar</Boton>
-                          <Boton variante="peligro" type="button" onClick={() => revisar(registro, 'Rechazado')}
+                          <Boton variante="peligro" type="button" onClick={() => setRechazo({
+                            registro, documentoRechazado: '', motivoRechazo: '', error: '',
+                          })}
                             aria-label={`Rechazar registro de ${registro.nombreAlumno}`}><X className="h-4 w-4" /> Rechazar</Boton>
                         </>
+                      )}
+                      {!soloLectura && registro.estatus === 'Validado' && (
+                        <Boton variante="secundario" type="button" disabled={!registro.tieneIntercultural}
+                          onClick={() => revisar(registro, { estatus: 'Validado' })}
+                          aria-label={`Volver a validar registro de ${registro.nombreAlumno}`}>
+                          <RotateCcw className="h-4 w-4" /> Volver a validar
+                        </Boton>
+                      )}
+                      {!soloLectura && ['Pendiente', 'Validado'].includes(registro.estatus)
+                        && !registro.tieneIntercultural && (
+                        <span className="self-center text-xs text-aviso">
+                          Para validar, carga el documento de la Universidad Intercultural. La constancia se genera desde la plantilla Word.
+                        </span>
                       )}
                     </div>
                   </td>
@@ -166,7 +222,7 @@ export default function LenguasMaternas({ soloLectura = false }) {
       } catch (err) { setSubir({ ...subir, error: mensajeError(err) }); }
     }}>
       {subir.error && <Alerta tipo="error">{subir.error}</Alerta>}
-      {[['intercultural', 'Documento de la Universidad Intercultural'], ['constancia', 'Constancia de acreditación de lengua materna']].map(([k, t]) => (
+      {[['intercultural', 'Documento de la Universidad Intercultural']].map(([k, t]) => (
         <Campo key={k} etiqueta={t} id={`sub-${k}`} ayuda="PDF, PNG o JPEG; máximo 5 MB.">
           <input id={`sub-${k}`} type="file" className={claseEntrada} accept=".pdf,.png,.jpg,.jpeg"
             onChange={(ev) => setSubir({ ...subir, [k]: ev.target.files?.[0] || null })} />
@@ -179,6 +235,65 @@ export default function LenguasMaternas({ soloLectura = false }) {
     </form>
   </Modal>
 )}
+      {validacion && (
+        <Modal titulo={`Generar constancia · ${validacion.registro.nombreAlumno}`}
+          onCerrar={() => setValidacion(null)} ancho="max-w-md">
+          <form className="grid gap-3" onSubmit={async (evento) => {
+            evento.preventDefault();
+            await revisar(validacion.registro, { estatus: 'Validado', folio: validacion.folio.trim().toUpperCase() });
+          }}>
+            {validacion.error && <Alerta tipo="error">{validacion.error}</Alerta>}
+            <p className="text-sm text-tenue">
+              Se generará la constancia Word de {validacion.registro.lengua} con los datos académicos del expediente.
+            </p>
+            <Campo etiqueta="Folio único" id="folioLenguaMaterna">
+              <input id="folioLenguaMaterna" className={claseEntrada} required maxLength={20}
+                pattern="[A-Za-z0-9]+" autoFocus value={validacion.folio}
+                onChange={(evento) => setValidacion({ ...validacion, folio: evento.target.value.toUpperCase() })} />
+            </Campo>
+            <div className="flex justify-end gap-2">
+              <Boton type="button" variante="secundario" onClick={() => setValidacion(null)}>Cancelar</Boton>
+              <Boton type="submit" disabled={!validacion.folio.trim()}>Generar y validar</Boton>
+            </div>
+          </form>
+        </Modal>
+      )}
+      {rechazo && (
+        <Modal titulo={`Rechazar registro · ${rechazo.registro.nombreAlumno}`}
+          onCerrar={() => setRechazo(null)} ancho="max-w-md">
+          <form className="grid gap-3" onSubmit={async (evento) => {
+            evento.preventDefault();
+            await revisar(rechazo.registro, {
+              estatus: 'Rechazado',
+              documentoRechazado: rechazo.documentoRechazado,
+              motivoRechazo: rechazo.motivoRechazo.trim(),
+            });
+          }}>
+            {rechazo.error && <Alerta tipo="error">{rechazo.error}</Alerta>}
+            <Campo etiqueta="Documento que debe corregirse" id="documentoRechazado">
+              <select id="documentoRechazado" className={claseEntrada} required
+                value={rechazo.documentoRechazado}
+                onChange={(evento) => setRechazo({ ...rechazo, documentoRechazado: evento.target.value })}>
+                <option value="">Selecciona un documento</option>
+                <option value="curp">CURP</option>
+                <option value="domicilio">Comprobante de domicilio</option>
+                <option value="ine">INE</option>
+              </select>
+            </Campo>
+            <Campo etiqueta="Motivo del rechazo" id="motivoRechazo">
+              <textarea id="motivoRechazo" className={claseEntrada} required maxLength={500} rows={4}
+                value={rechazo.motivoRechazo}
+                onChange={(evento) => setRechazo({ ...rechazo, motivoRechazo: evento.target.value })} />
+            </Campo>
+            <div className="flex justify-end gap-2">
+              <Boton type="button" variante="secundario" onClick={() => setRechazo(null)}>Cancelar</Boton>
+              <Boton type="submit" variante="peligro" disabled={!rechazo.motivoRechazo.trim()}>
+                Confirmar rechazo
+              </Boton>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }

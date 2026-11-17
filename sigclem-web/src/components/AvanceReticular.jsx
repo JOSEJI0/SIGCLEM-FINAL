@@ -15,7 +15,18 @@ function detalleNivel(n) {
 }
 
 /** Avance de los diez niveles; al pasar el mouse sobre un nivel se muestra su calificación. */
-export default function AvanceReticular({ avance, compacto = false }) {
+export default function AvanceReticular({ avance, compacto = false, formaLiberacion = null }) {
+  if (formaLiberacion) {
+    return (
+      <ol className="grid grid-cols-1">
+        <li className="rounded-[9px] border border-ok/30 bg-ok-fondo p-4">
+          <div className="text-xs font-semibold uppercase tracking-wide text-ok">Idioma liberado</div>
+          <div className="mt-1 text-base font-bold text-tinta">Liberado mediante: {formaLiberacion}</div>
+        </li>
+      </ol>
+    );
+  }
+
   return (
     <ol className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 ${compacto ? 'gap-2' : 'gap-2.5'}`}>
       {avance.map((n) => {

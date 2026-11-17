@@ -8,6 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.ArgumentMatchers.eq;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -37,6 +38,7 @@ import mx.edu.itch.sigclem.constancias.dto.AutorizarConstanciaRequest;
 import mx.edu.itch.sigclem.constancias.dto.ConstanciaDTO;
 import mx.edu.itch.sigclem.constancias.dto.RechazarConstanciaRequest;
 import mx.edu.itch.sigclem.constancias.repository.ConstanciaRepository;
+import mx.edu.itch.sigclem.constancias.repository.FolioConstanciaUsadoRepository;
 import mx.edu.itch.sigclem.notificaciones.domain.Notificacion;
 import mx.edu.itch.sigclem.notificaciones.repository.NotificacionRepository;
 import mx.edu.itch.sigclem.seguridad.domain.Rol;
@@ -55,8 +57,10 @@ class ConstanciaServiceTest {
     @Mock private NivelRepository nivelRepository;
     @Mock private UsuarioRepository usuarioRepository;
     @Mock private NotificacionRepository notificacionRepository;
-    @Mock private ConstanciaPdfService pdfService;
     @Mock private ArchivoConstanciaService archivoService;
+    @Mock private ConstanciaWordService wordService;
+    @Mock private ConfiguracionConstanciaService configuracionConstanciaService;
+    @Mock private FolioConstanciaUsadoRepository folioRepository;
     @InjectMocks private ConstanciaService service;
 
     private Usuario alumnoUsuario;
@@ -122,6 +126,37 @@ class ConstanciaServiceTest {
     }
 
     @Test
+    void noPermiteSolicitarConstanciaDeDiezNivelesSiElIdiomaSeLiberoPorLenguaMaterna() {
+        List<AvanceNivel> avances = avancesAcreditadosHasta(10);
+        avances.forEach(avance -> {
+            avance.setEstatus(EstatusAvance.EXENTO);
+            avance.setOrigen("Lengua materna");
+        });
+        when(avanceNivelRepository.findByIdNumeroControl("22520001")).thenReturn(avances);
+
+        assertThatThrownBy(() -> service.solicitar("22520001"))
+                .isInstanceOf(DatosInvalidosException.class)
+                .hasMessageContaining("liberado mediante Lengua materna")
+                .hasMessageContaining("no aplica la constancia de acreditación de diez niveles");
+        verify(constanciaRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void elegibilidadIdentificaLiberacionPorLenguaMaternaComoNoElegible() {
+        List<AvanceNivel> avances = avancesAcreditadosHasta(10);
+        avances.forEach(avance -> {
+            avance.setEstatus(EstatusAvance.EXENTO);
+            avance.setOrigen("Lengua materna");
+        });
+        when(avanceNivelRepository.findByIdNumeroControl("22520001")).thenReturn(avances);
+
+        var elegibilidad = service.consultarElegibilidad("22520001");
+
+        assertThat(elegibilidad.elegible()).isFalse();
+        assertThat(elegibilidad.formaLiberacion()).isEqualTo("Lengua materna");
+    }
+
+    @Test
     void noPermiteDuplicarUnaSolicitudActivaDelMismoIdioma() {
         when(avanceNivelRepository.findByIdNumeroControl("22520001"))
                 .thenReturn(avancesAcreditadosHasta(10));
@@ -135,7 +170,7 @@ class ConstanciaServiceTest {
     }
 
     @Test
-    void emitePdfConFolioUnicoYNotificaALaJefatura() throws Exception {
+    void emiteWordConFolioUnicoYNotificaALaJefatura() {
         Constancia pendiente = constanciaPendiente();
         when(constanciaRepository.buscarParaActualizar(4)).thenReturn(Optional.of(pendiente));
         when(constanciaRepository.existsByFolioIgnoreCase("ITCH2026A001")).thenReturn(false);
@@ -143,9 +178,11 @@ class ConstanciaServiceTest {
         when(usuarioRepository.findByNombreUsuario("coordinador")).thenReturn(Optional.of(coordinador));
         Usuario jefa = usuario("jefa.dgtv", 3, RolSistema.JEFA_DGTV);
         when(usuarioRepository.findFirstByRolNombreAndActivoTrueOrderByIdAsc("Jefa del DGTV")).thenReturn(Optional.of(jefa));
-        byte[] pdf = "%PDF-test".getBytes();
-        when(pdfService.generar(any())).thenReturn(pdf);
-        when(archivoService.guardar(4, pdf)).thenReturn("constancias/4.pdf");
+        when(configuracionConstanciaService.membreteVigente()).thenReturn(
+                mx.edu.itch.sigclem.constancias.dto.MembreteConstancia.porOmision());
+        when(wordService.generarIngles(any(), any())).thenReturn(new byte[] { 1, 2, 3 });
+        when(archivoService.guardarWord(eq("ingles"), eq(4), any(byte[].class)))
+                .thenReturn("constancias/ingles-4.docx");
 
         ConstanciaDTO emitida = service.autorizar(
                 4, new AutorizarConstanciaRequest("ITCH2026A001"), "coordinador");
@@ -153,6 +190,7 @@ class ConstanciaServiceTest {
         assertThat(emitida.estatus()).isEqualTo("Emitida");
         assertThat(emitida.folio()).isEqualTo("ITCH2026A001");
         assertThat(emitida.fechaExpedicion()).isEqualTo(LocalDate.now());
+        assertThat(emitida.tieneArchivoWord()).isTrue();
         ArgumentCaptor<Notificacion> notificacion = ArgumentCaptor.forClass(Notificacion.class);
         verify(notificacionRepository).saveAndFlush(notificacion.capture());
         assertThat(notificacion.getValue().getDestino()).isSameAs(jefa);

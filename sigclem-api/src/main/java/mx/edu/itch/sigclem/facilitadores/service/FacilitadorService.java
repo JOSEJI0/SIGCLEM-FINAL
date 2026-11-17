@@ -36,6 +36,15 @@ public class FacilitadorService {
 
     @Transactional
     public FacilitadorCreadoDTO registrar(FacilitadorRequest req) {
+        return registrar(req, false);
+    }
+
+    @Transactional
+    public FacilitadorCreadoDTO registrarConCambioObligatorio(FacilitadorRequest req) {
+        return registrar(req, true);
+    }
+
+    private FacilitadorCreadoDTO registrar(FacilitadorRequest req, boolean cambioObligatorio) {
         String correo = req.correo().trim().toLowerCase(Locale.ROOT);
         if (facilitadorRepository.existsByCorreoIgnoreCase(correo)
                 || usuarioRepository.existsByNombreUsuario(correo)) {
@@ -46,8 +55,9 @@ public class FacilitadorService {
                 .orElseThrow(() -> new IllegalStateException("Falta el rol Facilitador en el catálogo"));
         boolean asignada = req.contrasena() != null && !req.contrasena().isBlank();
         String contrasena = asignada ? req.contrasena() : generarContrasenaTemporal();
-        Usuario usuario = usuarioRepository.save(
-                new Usuario(correo, passwordEncoder.encode(contrasena), rol));
+        Usuario usuario = new Usuario(correo, passwordEncoder.encode(contrasena), rol);
+        usuario.setRequiereCambioContrasena(cambioObligatorio);
+        usuario = usuarioRepository.save(usuario);
 
         Facilitador facilitador = new Facilitador();
         facilitador.setUsuario(usuario);

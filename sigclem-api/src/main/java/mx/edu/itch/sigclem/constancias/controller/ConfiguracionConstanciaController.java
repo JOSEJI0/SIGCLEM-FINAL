@@ -32,6 +32,7 @@ import mx.edu.itch.sigclem.constancias.dto.ConstanciaDTO;
 import mx.edu.itch.sigclem.constancias.service.ConfiguracionConstanciaService;
 import mx.edu.itch.sigclem.constancias.service.ConstanciaAvancePdfService;
 import mx.edu.itch.sigclem.constancias.service.ConstanciaPdfService;
+import mx.edu.itch.sigclem.constancias.service.ConstanciaWordService;
 
 @Tag(name = "12. Firmas y membrete de constancias",
         description = "Firmantes, textos del oficio e imágenes del membrete del año que usan las constancias.")
@@ -43,6 +44,23 @@ public class ConfiguracionConstanciaController {
     private final ConfiguracionConstanciaService service;
     private final ConstanciaPdfService acreditacionPdf;
     private final ConstanciaAvancePdfService avancePdf;
+    private final ConstanciaWordService wordService;
+
+    @GetMapping("/plantillas")
+    @PreAuthorize("hasAnyRole('COORDINADOR','JEFA_DGTV')")
+    @Operation(summary = "Consultar las plantillas Word configuradas")
+    public java.util.Map<String, Boolean> estadoPlantillas() {
+        return wordService.estadoPlantillas();
+    }
+
+    @PutMapping(value = "/plantillas/{tipo}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('COORDINADOR')")
+    @Operation(summary = "Cargar plantilla Word de inglés o lengua materna", description = "Rol: [Coordinador]. DOCX de hasta 8 MB.")
+    public java.util.Map<String, Boolean> guardarPlantilla(
+            @PathVariable String tipo, @RequestParam("archivo") MultipartFile archivo) {
+        wordService.guardarPlantilla(tipo, archivo);
+        return wordService.estadoPlantillas();
+    }
 
     @GetMapping
     @PreAuthorize("hasAnyRole('COORDINADOR','JEFA_DGTV')")
@@ -97,7 +115,7 @@ public class ConfiguracionConstanciaController {
             pdf = switch (formato) {
                 case "acreditacion" -> acreditacionPdf.generar(new ConstanciaDTO(0, "00000000",
                         "Nombre del Alumno de Ejemplo", "Ingeniería en Sistemas Computacionales", "ISIC-2010-224",
-                        "0000", hoy, hoy, "Inglés", 10, 450, "B1", "Emitida", null));
+                        "0000", hoy, hoy, "Inglés", 10, 450, "B1", "Emitida", null, null, false));
                 case "avance" -> avancePdf.generar(new ConstanciaAvanceDTO(0, "00000000",
                         "Nombre del Alumno de Ejemplo", "Ingeniería en Sistemas Computacionales", 1, "Básico 1",
                         "Periodo de ejemplo", "A", "Nombre del Facilitador", 100, hoy));

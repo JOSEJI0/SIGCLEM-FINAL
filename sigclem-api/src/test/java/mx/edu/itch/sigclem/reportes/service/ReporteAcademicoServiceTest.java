@@ -1,6 +1,8 @@
 package mx.edu.itch.sigclem.reportes.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -16,12 +18,18 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import mx.edu.itch.sigclem.catalogos.domain.Nivel;
 import mx.edu.itch.sigclem.catalogos.domain.Periodo;
+import mx.edu.itch.sigclem.catalogos.domain.Modalidad;
+import mx.edu.itch.sigclem.catalogos.domain.Aula;
 import mx.edu.itch.sigclem.catalogos.repository.PeriodoRepository;
 import mx.edu.itch.sigclem.comun.excepcion.RecursoNoEncontradoException;
+import mx.edu.itch.sigclem.facilitadores.domain.Facilitador;
 import mx.edu.itch.sigclem.grupos.domain.Grupo;
 import mx.edu.itch.sigclem.grupos.domain.Inscripcion;
 import mx.edu.itch.sigclem.grupos.repository.GrupoRepository;
 import mx.edu.itch.sigclem.grupos.repository.InscripcionRepository;
+import mx.edu.itch.sigclem.lenguasmaternas.domain.LenguaMaterna;
+import mx.edu.itch.sigclem.lenguasmaternas.domain.RegistroLenguaMaterna;
+import mx.edu.itch.sigclem.lenguasmaternas.repository.RegistroLenguaMaternaRepository;
 
 @ExtendWith(MockitoExtension.class)
 class ReporteAcademicoServiceTest {
@@ -32,8 +40,17 @@ class ReporteAcademicoServiceTest {
     private GrupoRepository grupoRepository;
     @Mock
     private InscripcionRepository inscripcionRepository;
+    @Mock
+    private RegistroLenguaMaternaRepository registroLenguaMaternaRepository;
     @InjectMocks
     private ReporteAcademicoService service;
+
+    @org.junit.jupiter.api.BeforeEach
+    void prepararRegistrosLenguaMaternaVacios() {
+        lenient().when(registroLenguaMaternaRepository
+                .findByFechaRegistroBetweenOrderByFechaRegistroDescIdDesc(any(), any()))
+                .thenReturn(List.of());
+    }
 
     @Test
     void resumeGruposInscripcionesYCalificacionesPublicadasPorNivel() {
@@ -69,6 +86,57 @@ class ReporteAcademicoServiceTest {
             assertThat(fila.noAcreditados()).isEqualTo(1);
             assertThat(fila.calificacionesPendientes()).isEqualTo(1);
         });
+        assertThat(reporte.porGrupo()).hasSize(3);
+        assertThat(reporte.porGrupo()).filteredOn(grupo -> "Cerrada".equals(grupo.estatusActa()))
+                .filteredOn(grupo -> grupo.alumnosInscritos() == 2).singleElement().satisfies(grupo -> {
+                    assertThat(grupo.modalidad()).isEqualTo("Presencial");
+                    assertThat(grupo.facilitador()).isEqualTo("Luis Pérez");
+                    assertThat(grupo.alumnos()).hasSize(2);
+                    assertThat(grupo.alumnos()).extracting("resultado")
+                            .containsExactlyInAnyOrder("Acreditado", "No acreditado");
+                });
+        assertThat(reporte.alumnosLenguaMaterna()).isEmpty();
+    }
+
+    @Test
+    void incluyeAlumnosConRegistroDeLenguaMaternaEnElPeriodoAunqueNoTenganGrupo() {
+        Periodo periodo = periodo(1, "Enero-Junio 2026");
+        var carrera = mock(mx.edu.itch.sigclem.catalogos.domain.Carrera.class);
+        when(carrera.getNombre()).thenReturn("Sistemas");
+        var alumno = new mx.edu.itch.sigclem.alumnos.domain.Alumno();
+        alumno.setNumeroControl("A12345678");
+        alumno.setNombre("Ana");
+        alumno.setApellidoPaterno("López");
+        alumno.setCarrera(carrera);
+        alumno.setSemestre(4);
+        alumno.setSexo("M");
+        alumno.setEstatus("Activo");
+        var lengua = new LenguaMaterna();
+        lengua.setNombre("Náhuatl");
+        var registro = new RegistroLenguaMaterna();
+        registro.setAlumno(alumno);
+        registro.setLengua(lengua);
+        registro.setNivelDominio("Avanzado");
+        registro.setEstatus("Validado");
+        registro.setFechaRegistro(LocalDate.of(2026, 3, 10));
+        when(periodoRepository.findById(1)).thenReturn(Optional.of(periodo));
+        when(grupoRepository.findByPeriodoId(1)).thenReturn(List.of());
+        when(inscripcionRepository.findByGrupo_Periodo_Id(1)).thenReturn(List.of());
+        when(registroLenguaMaternaRepository
+                .findByFechaRegistroBetweenOrderByFechaRegistroDescIdDesc(
+                        periodo.getFechaInicio(), periodo.getFechaFin()))
+                .thenReturn(List.of(registro));
+
+        var reporte = service.obtenerReporte(1);
+
+        assertThat(reporte.alumnosLenguaMaterna()).singleElement().satisfies(estudiante -> {
+            assertThat(estudiante.numeroControl()).isEqualTo("A12345678");
+            assertThat(estudiante.nombreCompleto()).isEqualTo("Ana López");
+            assertThat(estudiante.carrera()).isEqualTo("Sistemas");
+            assertThat(estudiante.lengua()).isEqualTo("Náhuatl");
+            assertThat(estudiante.estatusRegistro()).isEqualTo("Validado");
+        });
+        assertThat(reporte.alumnosInscritos()).isZero();
     }
 
     @Test
@@ -111,9 +179,21 @@ class ReporteAcademicoServiceTest {
 
     private Grupo grupo(Periodo periodo, Nivel nivel, String estatusActa) {
         Grupo grupo = new Grupo();
+        grupo.setId(nivel.getNumero() * 10 + ("Cerrada".equals(estatusActa) ? 1 : 2));
+        grupo.setClave("A");
         grupo.setPeriodo(periodo);
         grupo.setNivel(nivel);
         grupo.setEstatusActa(estatusActa);
+        Modalidad modalidad = new Modalidad();
+        modalidad.setNombre("Presencial");
+        grupo.setModalidad(modalidad);
+        Aula aula = new Aula();
+        aula.setNombre("Aula 1");
+        grupo.setAula(aula);
+        Facilitador facilitador = new Facilitador();
+        facilitador.setNombre("Luis");
+        facilitador.setApellidoPaterno("Pérez");
+        grupo.setFacilitador(facilitador);
         return grupo;
     }
 

@@ -90,10 +90,12 @@ public class GrupoService {
         verificarActaAbierta(grupo);
         long inscritos = inscripcionRepository.countByGrupoId(id);
         if (inscritos > 0 && (!grupo.getNivel().getId().equals(req.idNivel())
+                || !Objects.equals(grupo.getNivelSecundario() == null ? null : grupo.getNivelSecundario().getId(),
+                        req.idNivelSecundario())
                 || !grupo.getPeriodo().getId().equals(req.idPeriodo())
                 || grupo.isIntensivo() != req.intensivo())) {
             throw new ReglaNegocioException("GRU-014",
-                    "El grupo ya tiene alumnos inscritos: no se puede cambiar su nivel, periodo o tipo de curso.");
+                    "El grupo ya tiene alumnos inscritos: no se pueden cambiar sus niveles, periodo o tipo de curso.");
         }
         if (req.cupo() < inscritos) {
             throw new ReglaNegocioException("GRU-015",
@@ -126,6 +128,22 @@ public class GrupoService {
         }
         Nivel nivel = nivelRepository.findById(req.idNivel())
                 .orElseThrow(() -> new DatosInvalidosException("GRU-003", "El nivel seleccionado no existe."));
+        Nivel nivelSecundario = req.idNivelSecundario() == null ? null
+                : nivelRepository.findById(req.idNivelSecundario())
+                        .orElseThrow(() -> new DatosInvalidosException("GRU-021", "El segundo nivel seleccionado no existe."));
+        if (nivelSecundario != null && (grupo.isIntensivo()
+                || nivelSecundario.getNumero() != nivel.getNumero() + 1)) {
+            throw new DatosInvalidosException("GRU-022",
+                    "Un grupo de dos niveles debe incluir dos niveles consecutivos y no puede ser intensivo.");
+        }
+        LocalDate inicioCaptura = req.fechaInicioCaptura() == null ? periodo.getFechaInicio() : req.fechaInicioCaptura();
+        LocalDate finCaptura = req.fechaFinCaptura() == null ? periodo.getFechaFin() : req.fechaFinCaptura();
+        if (inicioCaptura.isAfter(finCaptura)
+                || inicioCaptura.isBefore(periodo.getFechaInicio())
+                || finCaptura.isAfter(periodo.getFechaFin())) {
+            throw new DatosInvalidosException("GRU-023",
+                    "La ventana de captura debe estar dentro del periodo escolar y su fecha inicial no puede superar la final.");
+        }
         Modalidad modalidad = modalidadRepository.findById(req.idModalidad())
                 .orElseThrow(() -> new DatosInvalidosException("GRU-004", "La modalidad seleccionada no existe."));
         Facilitador facilitador = facilitadorRepository.findById(req.idFacilitador())
@@ -148,6 +166,9 @@ public class GrupoService {
                             "No está configurada el aula «Virtual». Aplica las migraciones de base de datos."));
             nivel = nivelRepository.findAllByOrderByNumeroAsc().stream().findFirst()
                     .orElseThrow(() -> new DatosInvalidosException("GRU-019", "No hay niveles configurados."));
+            if (nivelRepository.findAllByOrderByNumeroAsc().stream().filter(n -> n.getNumero() <= 10).count() < 10) {
+                throw new DatosInvalidosException("GRU-024", "El curso Intensivo requiere los diez niveles de inglés en el catálogo.");
+            }
         } else if ("Intensivo virtual".equalsIgnoreCase(modalidad.getNombre())
                 || "Virtual".equalsIgnoreCase(aula.getNombre())) {
             throw new DatosInvalidosException("GRU-020",
@@ -166,7 +187,10 @@ public class GrupoService {
 
         grupo.setClave(clave);
         grupo.setNivel(nivel);
+        grupo.setNivelSecundario(nivelSecundario);
         grupo.setPeriodo(periodo);
+        grupo.setFechaInicioCaptura(inicioCaptura);
+        grupo.setFechaFinCaptura(finCaptura);
         grupo.setModalidad(modalidad);
         grupo.setFacilitador(facilitador);
         grupo.setAula(aula);
@@ -240,6 +264,11 @@ public class GrupoService {
                         "La matrícula " + calificacion.numeroControl() + " no pertenece a este grupo.");
             }
             inscripcion.setCalificacionFinal(calificacion.calificacion());
+            if (grupo.getNivelSecundario() != null && calificacion.calificacionSecundaria() == null) {
+                inscripcion.setCalificacionSecundaria(null);
+            } else {
+                inscripcion.setCalificacionSecundaria(calificacion.calificacionSecundaria());
+            }
         }
         if (!porAlumno.isEmpty()) {
             throw new DatosInvalidosException("ACT-001", "Debes enviar la calificación de cada alumno inscrito.");
@@ -264,7 +293,8 @@ public class GrupoService {
         // Regla de negocio: ningún avance académico se registra sin el cargo del curso liquidado.
         Map<Integer, AutorizacionPago> cargos = cargosDe(inscripciones);
         List<String> sinPago = inscripciones.stream()
-                .filter(i -> !cursoLiquidado(i, cargos))
+                .filter(i -> !cursoLiquidado(i, cargos)
+                        || grupo.getNivelSecundario() != null && !cursoSecundarioLiquidado(i, cargos))
                 .map(i -> i.getAlumno().nombreCompleto() + " (" + i.getAlumno().getNumeroControl() + ")")
                 .toList();
         if (!sinPago.isEmpty()) {
@@ -274,7 +304,10 @@ public class GrupoService {
         }
         Map<Integer, Integer> siguientes = siguienteNivelPorNivel();
         for (Inscripcion inscripcion : inscripciones) {
-            actualizarAvance(inscripcion, siguientes);
+            actualizarAvance(inscripcion, grupo.getNivel(), inscripcion.getCalificacionFinal(), siguientes);
+            if (grupo.getNivelSecundario() != null) {
+                actualizarAvance(inscripcion, grupo.getNivelSecundario(), inscripcion.getCalificacionSecundaria(), siguientes);
+            }
         }
         marcarCerrada(grupo, "Facilitador", null);
         return ActaDTO.desde(grupo, inscripciones, cargos);
@@ -302,12 +335,30 @@ public class GrupoService {
         Map<Integer, Integer> siguientes = siguienteNivelPorNivel();
         List<AjusteAvance> ajustes = new ArrayList<>();
         for (Inscripcion inscripcion : inscripciones) {
-            if (cursoLiquidado(inscripcion, cargos)) {
-                actualizarAvance(inscripcion, siguientes);
+            if (grupo.isIntensivo()) {
+                if (cursoLiquidado(inscripcion, cargos)) {
+                    actualizarAvance(inscripcion, inscripcion.getNivelAcreditado(),
+                            inscripcion.getCalificacionFinal(), siguientes);
+                } else {
+                    inscripcion.setAvancePendiente(true);
+                }
             } else {
-                inscripcion.setAvancePendiente(true);
+                if (cursoLiquidado(inscripcion, cargos)) {
+                    actualizarAvance(inscripcion, grupo.getNivel(), inscripcion.getCalificacionFinal(), siguientes);
+                } else {
+                    inscripcion.setAvancePendiente(true);
+                }
+                if (grupo.getNivelSecundario() != null) {
+                    if (cursoSecundarioLiquidado(inscripcion, cargos)) {
+                        actualizarAvance(inscripcion, grupo.getNivelSecundario(), inscripcion.getCalificacionSecundaria(), siguientes);
+                    } else {
+                        inscripcion.setAvancePendienteSecundario(true);
+                    }
+                }
+            }
+            if (inscripcion.isAvancePendiente() || inscripcion.isAvancePendienteSecundario()) {
                 ajustes.add(new AjusteAvance(inscripcion, AjusteAvance.CIERRE_SIN_PAGO, null,
-                        estatusPago(inscripcion, cargos), texto, auth.getName()));
+                        estatusPagoGeneral(inscripcion, cargos), texto, auth.getName()));
             }
         }
 
@@ -364,17 +415,35 @@ public class GrupoService {
                 .findFirst()
                 .orElseThrow(() -> new RecursoNoEncontradoException("ACT-002",
                         "La matrícula " + numeroControl + " no pertenece a este grupo."));
-        if (!inscripcion.isAvancePendiente()) {
+        if (!inscripcion.isAvancePendiente() && !inscripcion.isAvancePendienteSecundario()) {
             throw new ReglaNegocioException("ACT-010", "El nivel de este alumno ya está asignado.");
         }
         Map<Integer, AutorizacionPago> cargos = cargosDe(inscripciones);
-        actualizarAvance(inscripcion, siguienteNivelPorNivel());
-        inscripcion.setAvancePendiente(false);
+        Map<Integer, Integer> siguientes = siguienteNivelPorNivel();
+        boolean aplicado = false;
+        Integer calificacionAplicada = null;
+        if (inscripcion.isAvancePendiente() && cursoLiquidado(inscripcion, cargos)) {
+            Nivel nivel = grupo.isIntensivo() ? inscripcion.getNivelAcreditado() : grupo.getNivel();
+            actualizarAvance(inscripcion, nivel, inscripcion.getCalificacionFinal(), siguientes);
+            inscripcion.setAvancePendiente(false);
+            aplicado = true;
+            calificacionAplicada = inscripcion.getCalificacionFinal();
+        }
+        if (inscripcion.isAvancePendienteSecundario() && cursoSecundarioLiquidado(inscripcion, cargos)) {
+            actualizarAvance(inscripcion, grupo.getNivelSecundario(), inscripcion.getCalificacionSecundaria(), siguientes);
+            inscripcion.setAvancePendienteSecundario(false);
+            aplicado = true;
+            calificacionAplicada = inscripcion.getCalificacionSecundaria();
+        }
+        if (!aplicado) {
+            throw new ReglaNegocioException("ACT-016",
+                    "Ninguno de los cursos pendientes está liquidado todavía.");
+        }
         inscripcionRepository.save(inscripcion);
-        String estatusNivel = inscripcion.getCalificacionFinal() >= 70 ? EstatusAvance.ACREDITADO.etiqueta()
+        String estatusNivel = calificacionAplicada != null && calificacionAplicada >= 70 ? EstatusAvance.ACREDITADO.etiqueta()
                 : EstatusAvance.REPROBADO.etiqueta();
         ajusteAvanceRepository.save(new AjusteAvance(inscripcion, AjusteAvance.NIVEL_ASIGNADO, estatusNivel,
-                estatusPago(inscripcion, cargos), texto, auth.getName()));
+                estatusPagoGeneral(inscripcion, cargos), texto, auth.getName()));
         return ActaDTO.desde(grupo, inscripciones, cargos);
     }
 
@@ -384,7 +453,8 @@ public class GrupoService {
         if (inscripciones.isEmpty()) {
             throw new ReglaNegocioException("ACT-003", "No se puede cerrar un acta sin alumnos inscritos.");
         }
-        if (inscripciones.stream().anyMatch(i -> i.getCalificacionFinal() == null)) {
+        if (inscripciones.stream().anyMatch(i -> i.getCalificacionFinal() == null
+                || grupo.getNivelSecundario() != null && i.getCalificacionSecundaria() == null)) {
             throw new ReglaNegocioException("ACT-004", "Captura todas las calificaciones antes de cerrar el acta.");
         }
         return inscripciones;
@@ -411,6 +481,10 @@ public class GrupoService {
         return "Liquidada".equals(estatusPago(inscripcion, cargos));
     }
 
+    private static boolean cursoSecundarioLiquidado(Inscripcion inscripcion, Map<Integer, AutorizacionPago> cargos) {
+        return "Liquidada".equals(estatusPagoSecundario(inscripcion, cargos));
+    }
+
     /** Las inscripciones anteriores a los cargos (hechas al validar el pago) cuentan como liquidadas. */
     private static String estatusPago(Inscripcion inscripcion, Map<Integer, AutorizacionPago> cargos) {
         if (inscripcion.getIdAutorizacion() == null || inscripcion.getIdComprobante() != null) {
@@ -418,6 +492,23 @@ public class GrupoService {
         }
         AutorizacionPago cargo = cargos.get(inscripcion.getIdAutorizacion());
         return cargo == null ? "Pendiente" : cargo.getEstatus();
+    }
+
+    private static String estatusPagoSecundario(Inscripcion inscripcion, Map<Integer, AutorizacionPago> cargos) {
+        if (inscripcion.getIdAutorizacionSecundaria() == null || inscripcion.getIdComprobanteSecundario() != null) {
+            return "Liquidada";
+        }
+        AutorizacionPago cargo = cargos.get(inscripcion.getIdAutorizacionSecundaria());
+        return cargo == null ? "Pendiente" : cargo.getEstatus();
+    }
+
+    private static String estatusPagoGeneral(Inscripcion inscripcion, Map<Integer, AutorizacionPago> cargos) {
+        String principal = estatusPago(inscripcion, cargos);
+        if (inscripcion.getIdAutorizacionSecundaria() == null) {
+            return principal;
+        }
+        String secundario = estatusPagoSecundario(inscripcion, cargos);
+        return principal.equals(secundario) ? principal : "Parcial";
     }
 
     private Map<Integer, Integer> siguienteNivelPorNivel() {
@@ -430,7 +521,9 @@ public class GrupoService {
     }
 
     Map<Integer, AutorizacionPago> cargosDe(List<Inscripcion> inscripciones) {
-        List<Integer> ids = inscripciones.stream().map(Inscripcion::getIdAutorizacion).filter(Objects::nonNull).toList();
+        List<Integer> ids = inscripciones.stream()
+                .flatMap(i -> java.util.stream.Stream.of(i.getIdAutorizacion(), i.getIdAutorizacionSecundaria()))
+                .filter(Objects::nonNull).distinct().toList();
         return ids.isEmpty() ? Map.of()
                 : autorizacionRepository.findByIdIn(ids).stream()
                         .collect(Collectors.toMap(AutorizacionPago::getId, Function.identity()));
@@ -463,10 +556,8 @@ public class GrupoService {
         }
     }
 
-    private void actualizarAvance(Inscripcion inscripcion, Map<Integer, Integer> siguienteNivelPorNivel) {
-        Nivel nivel = inscripcion.getGrupo().isIntensivo()
-                ? inscripcion.getNivelAcreditado()
-                : inscripcion.getGrupo().getNivel();
+    private void actualizarAvance(Inscripcion inscripcion, Nivel nivel, Integer calificacion,
+            Map<Integer, Integer> siguienteNivelPorNivel) {
         if (nivel == null) {
             throw new ReglaNegocioException("ACT-012",
                     "Debes asignar el nivel que acredita cada alumno del grupo Intensivo antes de cerrar el acta.");
@@ -476,7 +567,7 @@ public class GrupoService {
         AvanceNivel avance = avanceNivelRepository.findByIdNumeroControlAndIdIdNivel(numeroControl, idNivel)
                 .orElseThrow(() -> new ReglaNegocioException("ACT-005",
                         "El expediente de " + numeroControl + " no tiene el nivel inscrito en su avance."));
-        if (inscripcion.getCalificacionFinal() >= 70) {
+        if (calificacion >= 70) {
             avance.setEstatus(EstatusAvance.ACREDITADO);
             avance.setOrigen("Curso");
             Integer siguienteId = siguienteNivelPorNivel.get(idNivel);
@@ -507,10 +598,13 @@ public class GrupoService {
 
     private void verificarPeriodoEditable(Grupo grupo) {
         LocalDate hoy = LocalDate.now();
-        Periodo periodo = grupo.getPeriodo();
-        if (hoy.isBefore(periodo.getFechaInicio()) || hoy.isAfter(periodo.getFechaFin())) {
+        LocalDate inicioCaptura = grupo.getFechaInicioCaptura() != null
+                ? grupo.getFechaInicioCaptura() : grupo.getPeriodo().getFechaInicio();
+        LocalDate finCaptura = grupo.getFechaFinCaptura() != null
+                ? grupo.getFechaFinCaptura() : grupo.getPeriodo().getFechaFin();
+        if (hoy.isBefore(inicioCaptura) || hoy.isAfter(finCaptura)) {
             throw new ReglaNegocioException("ACT-007",
-                    "Los grupos de periodos anteriores o futuros solo pueden consultarse.");
+                    "La ventana de captura de calificaciones está cerrada; el acta solo puede consultarse.");
         }
     }
 

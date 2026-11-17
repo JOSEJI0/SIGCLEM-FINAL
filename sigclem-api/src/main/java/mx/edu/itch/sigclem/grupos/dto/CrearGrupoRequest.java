@@ -1,5 +1,6 @@
 package mx.edu.itch.sigclem.grupos.dto;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import jakarta.validation.Valid;
@@ -21,5 +22,13 @@ public record CrearGrupoRequest(
         @NotNull Integer idFacilitador,
         @NotNull Integer idAula,
         @NotNull @Min(1) @Max(255) Integer cupo,
-        @NotEmpty @Valid List<HorarioRequest> horarios) {
+        @NotEmpty @Valid List<HorarioRequest> horarios,
+        Integer idNivelSecundario,
+        LocalDate fechaInicioCaptura,
+        LocalDate fechaFinCaptura) {
+
+    public CrearGrupoRequest(String clave, Integer idNivel, boolean intensivo, Integer idPeriodo, Integer idModalidad,
+            Integer idFacilitador, Integer idAula, Integer cupo, List<HorarioRequest> horarios) {
+        this(clave, idNivel, intensivo, idPeriodo, idModalidad, idFacilitador, idAula, cupo, horarios, null, null, null);
+    }
 }

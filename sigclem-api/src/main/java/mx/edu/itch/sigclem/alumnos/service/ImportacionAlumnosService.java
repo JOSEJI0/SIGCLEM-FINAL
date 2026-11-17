@@ -26,6 +26,7 @@ import mx.edu.itch.sigclem.alumnos.domain.Alumno;
 import mx.edu.itch.sigclem.alumnos.domain.HistorialAcademico;
 import mx.edu.itch.sigclem.alumnos.dto.RegistroAlumnoRequest;
 import mx.edu.itch.sigclem.alumnos.dto.ResultadoCargaDTO;
+import mx.edu.itch.sigclem.alumnos.dto.ResultadoCompletarDatosDTO;
 import mx.edu.itch.sigclem.alumnos.dto.ResultadoCargaDTO.FilaConError;
 import mx.edu.itch.sigclem.alumnos.repository.AlumnoRepository;
 import mx.edu.itch.sigclem.alumnos.repository.HistorialAcademicoRepository;
@@ -66,7 +67,6 @@ public class ImportacionAlumnosService {
     private final HistorialAcademicoRepository historialRepository;
     private final ImportacionHistoricaService historicoService;
 
-    @Transactional
     public ResultadoCargaDTO importar(MultipartFile archivo) {
         if (archivo == null || archivo.isEmpty()) {
             throw new DatosInvalidosException("ALUM-020", "Sube el archivo Excel con los alumnos.");
@@ -170,6 +170,21 @@ public class ImportacionAlumnosService {
         
         // Retornamos el DTO (Asegúrate de agregar 'nivelesImportados' a tu ResultadoCargaDTO)
         return new ResultadoCargaDTO(filas, creados, nivelesImportados, errores);
+    }
+
+    public ResultadoCompletarDatosDTO completarExistentes(MultipartFile archivo) {
+        if (archivo == null || archivo.isEmpty()) {
+            throw new DatosInvalidosException("ALUM-020", "Sube el archivo Excel con los datos existentes.");
+        }
+        String nombreArchivo = archivo.getOriginalFilename();
+        if (nombreArchivo != null && !nombreArchivo.toLowerCase(Locale.ROOT).endsWith(".xlsx")) {
+            throw new DatosInvalidosException("ALUM-021", "El archivo debe ser un Excel con extensión .xlsx.");
+        }
+        try (InputStream entrada = archivo.getInputStream(); Workbook libro = new XSSFWorkbook(entrada)) {
+            return historicoService.completarExistentes(libro);
+        } catch (IOException e) {
+            throw new DatosInvalidosException("ALUM-022", "No se pudo leer el archivo Excel; revisa que no esté dañado.");
+        }
     }
 
     /**

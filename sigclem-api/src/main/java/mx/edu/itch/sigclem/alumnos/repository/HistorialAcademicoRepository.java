@@ -18,7 +18,7 @@ public interface HistorialAcademicoRepository extends JpaRepository<HistorialAca
             select h from HistorialAcademico h
             where h.alumno.numeroControl = :numeroControl
               and h.nivel = :nivel
-              and h.periodo = :periodo
+              and coalesce(h.periodo, '') = :periodo
               and coalesce(h.grupo, '') = :grupo
             order by h.id
             """)

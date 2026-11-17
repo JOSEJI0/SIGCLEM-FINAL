@@ -17,7 +17,7 @@ class ConstanciaPdfServiceTest {
     private final ConstanciaDTO constancia = new ConstanciaDTO(
             1, "22520187", "José De Jesús Tepetitlán Mancilla", "Ingeniería en Sistemas Computacionales",
             "ISIC-2010-224", "1620", LocalDate.of(2025, 4, 10), LocalDate.of(2025, 4, 10), "Inglés",
-            10, 450, "B1", "Emitida", null);
+            10, 450, "B1", "Emitida", null, "H", false);
 
     @Test
     void generaElOficioDeAcreditacionConLasFirmasVigentes() throws Exception {

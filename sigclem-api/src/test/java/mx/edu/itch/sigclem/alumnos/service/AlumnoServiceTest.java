@@ -1,6 +1,7 @@
 package mx.edu.itch.sigclem.alumnos.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -29,6 +30,7 @@ import mx.edu.itch.sigclem.catalogos.domain.Carrera;
 import mx.edu.itch.sigclem.catalogos.domain.Nivel;
 import mx.edu.itch.sigclem.catalogos.repository.CarreraRepository;
 import mx.edu.itch.sigclem.catalogos.repository.NivelRepository;
+import mx.edu.itch.sigclem.comun.excepcion.DatosInvalidosException;
 import mx.edu.itch.sigclem.grupos.repository.InscripcionRepository;
 import mx.edu.itch.sigclem.seguridad.repository.RolRepository;
 import mx.edu.itch.sigclem.seguridad.repository.UsuarioRepository;
@@ -164,7 +166,7 @@ class AlumnoServiceTest {
     }
 
     @Test
-    void liberarIdiomaPorCursoIntensivoMarcaLosNivelesPendientesConEseOrigen() {
+    void liberaIdiomaPorLenguaMaternaAlValidarElRegistro() {
         when(alumnoRepository.findConCarreraByNumeroControl("A12345678")).thenReturn(java.util.Optional.of(alumno));
         var avance = new java.util.ArrayList<AvanceNivel>(List.of(
                 new AvanceNivel("A12345678", 1, EstatusAvance.ACREDITADO),
@@ -172,15 +174,18 @@ class AlumnoServiceTest {
                 new AvanceNivel("A12345678", 3, EstatusAvance.NO_PERMITIDO)));
         when(avanceRepository.findByIdNumeroControl("A12345678")).thenReturn(avance);
 
-        var exp = service.liberarIdioma("A12345678", "Curso intensivo", "Pago y aprobación confirmados");
+        var expediente = service.liberarIdiomaPorLenguaMaterna("A12345678");
 
-        assertEquals("Curso intensivo", exp.formaLiberacion());
-        assertEquals("Idioma acreditado", exp.nivelActual());
-        assertEquals(EstatusAvance.ACREDITADO, avance.get(0).getEstatus());
+        assertEquals("Lengua materna", expediente.formaLiberacion());
+        assertEquals("Idioma acreditado", expediente.nivelActual());
         assertEquals(EstatusAvance.EXENTO, avance.get(1).getEstatus());
-        assertEquals("Curso intensivo", avance.get(1).getOrigen());
-        assertEquals(EstatusAvance.EXENTO, avance.get(2).getEstatus());
-        assertEquals("Curso intensivo", avance.get(2).getOrigen());
+        assertEquals("Lengua materna", avance.get(1).getOrigen());
+    }
+
+    @Test
+    void liberarIdiomaNoAceptaElCursoIntensivoComoLiberacion() {
+        assertThrows(DatosInvalidosException.class,
+                () -> service.liberarIdioma("A12345678", "Curso intensivo", "Pago y aprobación confirmados"));
     }
 
     private static Nivel nivel(int numero, String nombre) {

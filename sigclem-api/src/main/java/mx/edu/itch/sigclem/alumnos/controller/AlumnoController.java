@@ -38,6 +38,7 @@ public class AlumnoController {
     private final AlumnoService alumnoService;
     private final mx.edu.itch.sigclem.alumnos.service.ExpedienteIntegralService expedienteIntegralService;
     private final mx.edu.itch.sigclem.alumnos.service.ImportacionAlumnosService importacionService;
+    private final mx.edu.itch.sigclem.alumnos.service.ImportacionOperativaService importacionOperativaService;
     private final mx.edu.itch.sigclem.auditoria.service.AuditoriaService auditoria;
 
     @Operation(summary = "Importar alumnos e histórico desde Excel",
@@ -52,7 +53,23 @@ public class AlumnoController {
         auditoria.registrar(mx.edu.itch.sigclem.auditoria.domain.AccionAuditoria.ALUMNOS_IMPORTADOS,
                 mx.edu.itch.sigclem.auditoria.domain.RegistroAuditoria.OK,
                 resultado.creados() + " alumnos nuevos y " + resultado.inscripcionesImportadas()
-                        + " inscripciones históricas procesadas desde Excel.");
+                        + " inscripciones históricas y " + resultado.horariosImportados()
+                        + " horarios importados desde Excel.");
+        return resultado;
+    }
+
+    @Operation(summary = "Completar campos vacíos de alumnos, facilitadores, grupos y horarios",
+            description = "Rol: [Coordinador]. Solo completa valores vacíos de registros existentes; no crea grupos, "
+                    + "inscripciones ni avance académico.")
+    @PostMapping(value = "/completar", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('COORDINADOR')")
+    public mx.edu.itch.sigclem.alumnos.dto.ResultadoCompletarDatosDTO completar(
+            @org.springframework.web.bind.annotation.RequestParam("archivo")
+            org.springframework.web.multipart.MultipartFile archivo) {
+        var resultado = importacionService.completarExistentes(archivo);
+        auditoria.registrar(mx.edu.itch.sigclem.auditoria.domain.AccionAuditoria.ALUMNOS_IMPORTADOS,
+                mx.edu.itch.sigclem.auditoria.domain.RegistroAuditoria.OK,
+                "Completar datos existentes: " + resultado.camposCompletados() + " campos completados en Excel.");
         return resultado;
     }
 
@@ -66,6 +83,34 @@ public class AlumnoController {
                 .contentType(org.springframework.http.MediaType.parseMediaType(
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
                 .body(importacionService.plantilla());
+    }
+
+    @Operation(summary = "Importar alumnos, facilitadores, grupos y horarios desde Excel",
+            description = "Rol: [Coordinador]. No crea inscripciones, cargos, calificaciones ni avance académico.")
+    @PostMapping(value = "/carga-operativa", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('COORDINADOR')")
+    public mx.edu.itch.sigclem.alumnos.dto.ResultadoImportacionOperativaDTO cargarOperativo(
+            @org.springframework.web.bind.annotation.RequestParam("archivo")
+            org.springframework.web.multipart.MultipartFile archivo) {
+        var resultado = importacionOperativaService.importar(archivo);
+        auditoria.registrar(mx.edu.itch.sigclem.auditoria.domain.AccionAuditoria.ALUMNOS_IMPORTADOS,
+                mx.edu.itch.sigclem.auditoria.domain.RegistroAuditoria.OK,
+                "Carga operativa: " + resultado.alumnosCreados() + " alumnos, "
+                        + resultado.facilitadoresCreados() + " facilitadores, " + resultado.gruposCreados()
+                        + " grupos y " + resultado.horariosCreados() + " horarios creados.");
+        return resultado;
+    }
+
+    @Operation(summary = "Descargar plantilla de carga operativa", description = "Rol: [Coordinador]")
+    @GetMapping("/carga-operativa/plantilla")
+    @PreAuthorize("hasRole('COORDINADOR')")
+    public ResponseEntity<byte[]> plantillaOperativa() {
+        return ResponseEntity.ok()
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"plantilla-carga-operativa-sigclem.xlsx\"")
+                .contentType(org.springframework.http.MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(importacionOperativaService.plantilla());
     }
 
     /** Ficha única: avance, historial, pagos, exámenes, diagnósticos, constancias y lengua materna. */
@@ -130,7 +175,7 @@ public class AlumnoController {
     }
 
     @Operation(summary = "Liberar la lengua extranjera por otra forma",
-            description = "Rol: [Coordinador]. Formas: examen global, curso intensivo, lengua materna u otra. "
+            description = "Rol: [Coordinador]. Formas: examen global, lengua materna u otra. "
                     + "La coordinación confirma manualmente pago y aprobación antes de liberar.")
     @PostMapping("/{numeroControl}/liberacion")
     @PreAuthorize("hasRole('COORDINADOR')")

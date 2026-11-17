@@ -20,7 +20,7 @@ const MODULOS = [
 
 /** CU-01 Iniciar sesión (Figura 37). */
 export default function Login() {
-  const { perfil, login, entrarComo, expirada } = useAuth();
+  const { perfil, login, entrarComo, expirada, sesion } = useAuth();
   const navegar = useNavigate();
   const { state } = useLocation();
   const [usuario, setUsuario] = useState('');
@@ -53,7 +53,8 @@ export default function Login() {
     return () => { vigente = false; };
   }, []);
 
-  if (perfil) return <Navigate to={rutaInicio(perfil.rol)} replace />;
+  if (perfil) return <Navigate
+    to={sesion?.requiereCambioContrasena ? '/cambiar-contrasena-temporal' : rutaInicio(perfil.rol)} replace />;
   if (modo !== 'normal') {
     return (
       <div className="flex min-h-full items-center justify-center bg-[#F7F8FB] p-4">
@@ -71,7 +72,12 @@ export default function Login() {
     setEnviando(true);
     setError('');
     try {
-      const p = await login(usuario.trim(), contrasena);
+      const sesionNueva = await login(usuario.trim(), contrasena);
+      const p = sesionNueva.perfil;
+      if (sesionNueva.requiereCambioContrasena) {
+        navegar('/cambiar-contrasena-temporal', { replace: true });
+        return;
+      }
       const destino = state?.desde?.startsWith(rutaInicio(p.rol)) ? state.desde : rutaInicio(p.rol);
       navegar(destino, { replace: true });
     } catch (err) {

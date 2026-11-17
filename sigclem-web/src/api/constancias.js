@@ -17,6 +17,8 @@ export const rechazarConstancia = (id, motivo) =>
   api.post(`/constancias/${encodeURIComponent(id)}/rechazo`, { motivo }).then((respuesta) => respuesta.data);
 export const descargarPdfConstancia = (id) =>
   api.get(`/constancias/${encodeURIComponent(id)}/pdf`, { responseType: 'blob' });
+export const descargarWordConstancia = (id) =>
+  api.get(`/constancias/${encodeURIComponent(id)}/word`, { responseType: 'blob' }).then((r) => r.data);
 /** Constancia de avance por nivel de inglés (un PDF por cada nivel acreditado con acta cerrada). */
 export const listarMisConstanciasAvance = () =>
   api.get('/constancias/avance/mias').then((respuesta) => respuesta.data);
@@ -37,3 +39,8 @@ export const obtenerImagenConstancia = (tipo) =>
   api.get(`/constancias/configuracion/imagenes/${encodeURIComponent(tipo)}`, { responseType: 'blob' }).then((respuesta) => respuesta.data);
 export const vistaPreviaConstancia = (formato) =>
   api.get(`/constancias/configuracion/vista-previa/${encodeURIComponent(formato)}`, { responseType: 'blob' }).then((respuesta) => respuesta.data);
+export const estadoPlantillasConstancia = () =>
+  api.get('/constancias/configuracion/plantillas').then((respuesta) => respuesta.data);
+export const guardarPlantillaConstancia = (tipo, datos) =>
+  api.put(`/constancias/configuracion/plantillas/${encodeURIComponent(tipo)}`, datos)
+    .then((respuesta) => respuesta.data);

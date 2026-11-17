@@ -50,7 +50,7 @@ export default function ExpedienteIntegral({ datos }) {
     ['Nivel actual', e.formaLiberacion
       ? <span key="n"><b>{e.nivelActual}</b> <span className="text-xs text-tenue">(liberado por {e.formaLiberacion})</span></span>
       : <b key="n">{e.nivelActual}</b>],
-    ['Niveles cubiertos', `${e.nivelesCubiertos} de ${e.avance.length}`],
+    ...(!e.formaLiberacion ? [['Niveles cubiertos', `${e.nivelesCubiertos} de ${e.avance.length}`]] : []),
     ['Saldo pendiente', saldo > 0 ? <b key="s" className="text-aviso">{pesos(saldo)}</b> : 'Sin adeudos'],
     ['Lengua materna', e.hablaLenguaMaterna ? 'Sí habla' : 'No'],
   ];
@@ -73,8 +73,10 @@ export default function ExpedienteIntegral({ datos }) {
 
       {pestana === 'avance' && (
         <>
-          <AvanceReticular avance={e.avance} compacto />
-          <p className="mt-2 text-xs text-tenue">Pasa el mouse sobre un nivel para ver su calificación.</p>
+          <AvanceReticular avance={e.avance} compacto formaLiberacion={e.formaLiberacion} />
+          {!e.formaLiberacion && (
+            <p className="mt-2 text-xs text-tenue">Pasa el mouse sobre un nivel para ver su calificación.</p>
+          )}
         </>
       )}
 

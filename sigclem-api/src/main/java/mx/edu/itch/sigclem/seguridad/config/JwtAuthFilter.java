@@ -37,19 +37,31 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         String cabecera = request.getHeader("Authorization");
         if (cabecera != null && cabecera.startsWith(PREFIJO)
                 && SecurityContextHolder.getContext().getAuthentication() == null) {
-            jwtService.extraerUsuario(cabecera.substring(PREFIJO.length())).ifPresent(usuario -> {
-                try {
-                    UserDetails detalles = userDetailsService.loadUserByUsername(usuario);
-                    if (detalles.isEnabled()) {
-                        var auth = new UsernamePasswordAuthenticationToken(detalles, null, detalles.getAuthorities());
-                        auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                        SecurityContextHolder.getContext().setAuthentication(auth);
-                    }
-                } catch (UsernameNotFoundException ex) {
-                    log.warn("Token válido de un usuario inexistente: {}", usuario);
-                }
-            });
+            UserDetails detalles = jwtService.extraerUsuario(cabecera.substring(PREFIJO.length()))
+                    .map(this::cargarUsuario).orElse(null);
+            if (detalles instanceof mx.edu.itch.sigclem.seguridad.service.UsuarioAutenticado autenticado
+                    && autenticado.requiereCambioContrasena()
+                    && !request.getRequestURI().equals("/api/v1/cuentas/mi-contrasena")
+                    && !request.getRequestURI().equals("/api/v1/auth/perfil")) {
+                response.sendError(HttpServletResponse.SC_FORBIDDEN,
+                        "Debes cambiar tu contraseña temporal antes de usar el sistema.");
+                return;
+            }
+            if (detalles != null && detalles.isEnabled()) {
+                var auth = new UsernamePasswordAuthenticationToken(detalles, null, detalles.getAuthorities());
+                auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                SecurityContextHolder.getContext().setAuthentication(auth);
+            }
         }
         chain.doFilter(request, response);
+    }
+
+    private UserDetails cargarUsuario(String nombreUsuario) {
+        try {
+            return userDetailsService.loadUserByUsername(nombreUsuario);
+        } catch (UsernameNotFoundException ex) {
+            log.warn("Token válido de un usuario inexistente: {}", nombreUsuario);
+            return null;
+        }
     }
 }

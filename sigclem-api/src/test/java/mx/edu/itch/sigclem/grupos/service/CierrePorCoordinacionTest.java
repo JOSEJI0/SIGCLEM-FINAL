@@ -179,6 +179,7 @@ class CierrePorCoordinacionTest {
         Grupo grupo = mock(Grupo.class, RETURNS_DEEP_STUBS);
         when(grupo.getId()).thenReturn(4);
         when(grupo.getEstatusActa()).thenReturn("En captura");
+        when(grupo.getNivelSecundario()).thenReturn(null);
         when(grupoRepository.findById(4)).thenReturn(Optional.of(grupo));
         return grupo;
     }

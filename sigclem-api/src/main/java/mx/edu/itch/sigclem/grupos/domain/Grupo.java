@@ -49,9 +49,19 @@ public class Grupo {
     @JoinColumn(name = "id_nivel", nullable = false)
     private Nivel nivel;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "id_nivel_secundario")
+    private Nivel nivelSecundario;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "id_periodo", nullable = false)
     private Periodo periodo;
+
+    @Column(name = "fecha_inicio_captura", nullable = false)
+    private LocalDate fechaInicioCaptura;
+
+    @Column(name = "fecha_fin_captura", nullable = false)
+    private LocalDate fechaFinCaptura;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "id_modalidad", nullable = false)
@@ -65,7 +75,7 @@ public class Grupo {
     @JoinColumn(name = "id_aula", nullable = false)
     private Aula aula;
 
-    @Column(nullable = false)
+    @Column(nullable = true)
     private Integer cupo;
 
     @Column(name = "estatus_acta", nullable = false, length = 10)

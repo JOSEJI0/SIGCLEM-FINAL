@@ -15,12 +15,17 @@ public record GrupoDTO(
         String clave,
         boolean intensivo,
         Integer idNivel,
+        Integer idNivelSecundario,
         Integer nivelNumero,
         String nivel,
+        Integer nivelNumeroSecundario,
+        String nivelSecundario,
         String periodo,
         Integer idPeriodo,
         LocalDate fechaInicioPeriodo,
         LocalDate fechaFinPeriodo,
+        LocalDate fechaInicioCaptura,
+        LocalDate fechaFinCaptura,
         Integer idModalidad,
         String modalidad,
         Integer idAula,
@@ -36,14 +41,30 @@ public record GrupoDTO(
         String observacionCierre,
         List<HorarioDTO> horarios) {
 
+    public GrupoDTO(Integer id, String clave, boolean intensivo, Integer idNivel, Integer nivelNumero, String nivel,
+            String periodo, Integer idPeriodo, LocalDate fechaInicioPeriodo, LocalDate fechaFinPeriodo,
+            Integer idModalidad, String modalidad, Integer idAula, String aula, Integer idFacilitador,
+            String facilitador, Integer cupo, long alumnosInscritos, long interesados, String estatusActa,
+            LocalDate fechaCierreActa, String cerradaPor, String observacionCierre, List<HorarioDTO> horarios) {
+        this(id, clave, intensivo, idNivel, null, nivelNumero, nivel, null, null, periodo, idPeriodo,
+                fechaInicioPeriodo, fechaFinPeriodo, fechaInicioPeriodo, fechaFinPeriodo, idModalidad, modalidad,
+                idAula, aula, idFacilitador, facilitador, cupo, alumnosInscritos, interesados, estatusActa,
+                fechaCierreActa, cerradaPor, observacionCierre, horarios);
+    }
+
     public static GrupoDTO desde(Grupo grupo, long alumnosInscritos) {
         return desde(grupo, alumnosInscritos, 0);
     }
 
     public static GrupoDTO desde(Grupo grupo, long alumnosInscritos, long interesados) {
-        return new GrupoDTO(grupo.getId(), grupo.getClave(), grupo.isIntensivo(), grupo.getNivel().getId(), grupo.getNivel().getNumero(),
-                grupo.getNivel().getNombre(), grupo.getPeriodo().getNombre(), grupo.getPeriodo().getId(),
+        return new GrupoDTO(grupo.getId(), grupo.getClave(), grupo.isIntensivo(), grupo.getNivel().getId(),
+                grupo.getNivelSecundario() == null ? null : grupo.getNivelSecundario().getId(),
+                grupo.getNivel().getNumero(), grupo.getNivel().getNombre(),
+                grupo.getNivelSecundario() == null ? null : grupo.getNivelSecundario().getNumero(),
+                grupo.getNivelSecundario() == null ? null : grupo.getNivelSecundario().getNombre(),
+                grupo.getPeriodo().getNombre(), grupo.getPeriodo().getId(),
                 grupo.getPeriodo().getFechaInicio(), grupo.getPeriodo().getFechaFin(),
+                grupo.getFechaInicioCaptura(), grupo.getFechaFinCaptura(),
                 grupo.getModalidad().getId(), grupo.getModalidad().getNombre(),
                 grupo.getAula().getId(), grupo.getAula().getNombre(),
                 grupo.getFacilitador().getId(), grupo.getFacilitador().nombreCompleto(),

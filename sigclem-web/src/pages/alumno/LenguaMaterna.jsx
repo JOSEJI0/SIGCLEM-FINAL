@@ -23,7 +23,8 @@ export default function LenguaMaterna() {
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
   const [archivos, setArchivos] = useState({ curp: null, domicilio: null, ine: null });
-  const listo = idLengua && archivos.curp && archivos.domicilio && archivos.ine;
+  const [editando, setEditando] = useState(null);
+  const listo = idLengua && (editando || (archivos.curp && archivos.domicilio && archivos.ine));
 
 
   const cargar = useCallback(async () => {
@@ -49,21 +50,32 @@ export default function LenguaMaterna() {
 
   async function enviar(evento) {
     evento.preventDefault();
-    if (!archivos.curp || !archivos.domicilio || !archivos.ine) {
+    if (!editando && (!archivos.curp || !archivos.domicilio || !archivos.ine)) {
       setError('Debes adjuntar los tres documentos: CURP, comprobante de domicilio e INE.');
+      return;
+    }
+    if (editando?.documentoRechazado && !archivos[editando.documentoRechazado]) {
+      setError('Debes seleccionar un archivo nuevo para el documento observado por coordinación.');
       return;
     }
     setGuardando(true);
     setError('');
     setAviso('');
     try {
-      await registrarLenguaMaterna({ idLengua: Number(idLengua), nivelDominio: nivelDominio.trim() || null }, archivos);
+      const registro = await registrarLenguaMaterna(
+        { idLengua: Number(idLengua), nivelDominio: nivelDominio.trim() || null },
+        archivos,
+      );
+      setRegistros((actuales) => [
+        registro,
+        ...actuales.filter((actual) => actual.id !== registro.id),
+      ]);
       setAviso('Registro enviado. Coordinación revisará los documentos.');
       setIdLengua('');
       setNivelDominio('');
       setArchivos({ curp: null, domicilio: null, ine: null });
+      setEditando(null);
       evento.currentTarget.reset();
-      await cargar();
     } catch (e) {
       setError(mensajeError(e));
     } finally {
@@ -77,6 +89,20 @@ export default function LenguaMaterna() {
     cargar: () => descargarDocumentoLenguaMaterna(registro.id, tipo),
   });
 
+  async function descargarConstancia(registro) {
+    try {
+      const blob = await descargarDocumentoLenguaMaterna(registro.id, 'constancia');
+      const url = URL.createObjectURL(blob);
+      const enlace = document.createElement('a');
+      enlace.href = url;
+      enlace.download = `constancia-lengua-materna-${registro.folioConstancia}.docx`;
+      enlace.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      setError(mensajeError(e));
+    }
+  }
+
   if (cargando) return <Cargando />;
 
   return (
@@ -88,13 +114,13 @@ export default function LenguaMaterna() {
       {error && <Alerta tipo="error">{error}</Alerta>}
       {aviso && <Alerta tipo="ok">{aviso}</Alerta>}
 
-      <Tarjeta titulo="Registrar lengua materna" icono={Upload}>
-        {disponibles.length === 0 ? (
+      <Tarjeta titulo={editando ? 'Corregir registro rechazado' : 'Registrar lengua materna'} icono={Upload}>
+        {disponibles.length === 0 && !editando ? (
           <p className="text-sm text-tenue">No hay lenguas disponibles para registrar.</p>
         ) : (
-          <form className="grid gap-3 md:grid-cols-2" onSubmit={enviar}>
+          <form key={editando?.id ?? 'nuevo'} className="grid gap-3 md:grid-cols-2" onSubmit={enviar}>
             <Campo etiqueta="Lengua" id="lenguaMaterna">
-              <select className={claseEntrada} id="lenguaMaterna" required value={idLengua}
+              <select className={claseEntrada} id="lenguaMaterna" required value={idLengua} disabled={Boolean(editando)}
                 onChange={(evento) => setIdLengua(evento.target.value)}>
                 <option value="">Selecciona una lengua</option>
                 {disponibles.map((lengua) => <option key={lengua.id} value={lengua.id}>{lengua.nombre}</option>)}
@@ -104,17 +130,34 @@ export default function LenguaMaterna() {
               <input className={claseEntrada} id="nivelDominio" maxLength={20} value={nivelDominio}
                 onChange={(evento) => setNivelDominio(evento.target.value)} />
             </Campo>
+            {editando && (
+              <div className="md:col-span-2">
+                <Alerta tipo="info">
+                  Se conservarán los documentos actuales que no reemplaces. Cambia el documento indicado por coordinación
+                  y vuelve a enviar el mismo registro.
+                  {editando.motivoRechazo && <><br /><b>Motivo:</b> {editando.motivoRechazo}</>}
+                </Alerta>
+              </div>
+            )}
             {[['curp', 'CURP'], ['domicilio', 'Comprobante de domicilio'], ['ine', 'INE']].map(([clave, etiqueta]) => (
-              <Campo key={clave} etiqueta={`${etiqueta} (PDF, PNG o JPEG; máx. 5 MB)`} id={`doc-${clave}`}>
-                <input className={claseEntrada} id={`doc-${clave}`} type="file" required
+              <Campo key={clave} etiqueta={`${etiqueta}${editando
+                ? (editando.documentoRechazado === clave ? ' (reemplazo obligatorio)' : ' (opcional, conserva el actual)')
+                : ''} (PDF, PNG o JPEG; máx. 5 MB)`} id={`doc-${clave}`}>
+                <input className={claseEntrada} id={`doc-${clave}`} type="file"
+                required={!editando || editando.documentoRechazado === clave}
                 accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
                 onChange={(e) => setArchivos((a) => ({ ...a, [clave]: e.target.files?.[0] || null }))} />
             </Campo>
             ))}
-            <div className="flex items-end">
-              <Boton type="submit" disabled={guardando || !idLengua}>
-                {guardando ? 'Enviando…' : 'Enviar registro'}
+            <div className="flex items-end gap-2">
+              <Boton type="submit" disabled={guardando || !listo}>
+                {guardando ? 'Enviando…' : editando ? 'Reenviar registro corregido' : 'Enviar registro'}
               </Boton>
+              {editando && <Boton type="button" variante="secundario" disabled={guardando}
+                onClick={() => {
+                  setEditando(null); setIdLengua(''); setNivelDominio('');
+                  setArchivos({ curp: null, domicilio: null, ine: null });
+                }}>Cancelar</Boton>}
             </div>
           </form>
         )}
@@ -137,7 +180,32 @@ export default function LenguaMaterna() {
                   <td className="py-3 pr-4">{registro.fechaRegistro}</td>
                   <td className="py-3 pr-4"><Insignia estatus={registro.estatus} /></td>
                   <td className="py-3">
-                    <DocumentosLengua registro={registro} onVer={ver} />
+                    <div className="grid gap-2">
+                      <DocumentosLengua registro={registro} onVer={ver} onDescargar={descargarConstancia} />
+                      {registro.folioConstancia && (
+                        <span className="text-xs text-tenue">Constancia Word · folio {registro.folioConstancia}</span>
+                      )}
+                      {registro.motivoRechazo && (
+                        <Alerta tipo="error">
+                          <b>Documento rechazado:</b> {{
+                            curp: 'CURP', domicilio: 'Comprobante de domicilio', ine: 'INE',
+                          }[registro.documentoRechazado] || 'No especificado'}.
+                          <br /><b>Motivo:</b> {registro.motivoRechazo}
+                        </Alerta>
+                      )}
+                      {registro.estatus === 'Rechazado' && (
+                        <Boton variante="secundario" type="button" className="w-fit"
+                          onClick={() => {
+                            setEditando(registro);
+                            setIdLengua(String(registro.idLengua));
+                            setNivelDominio(registro.nivelDominio || '');
+                            setArchivos({ curp: null, domicilio: null, ine: null });
+                            setError(''); setAviso('');
+                          }}>
+                          Corregir y reenviar registro
+                        </Boton>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}</tbody>

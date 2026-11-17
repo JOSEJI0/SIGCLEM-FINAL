@@ -15,7 +15,7 @@ class JwtServiceTest {
 
     private final JwtService servicio = new JwtService(SECRETO, 60_000);
     private final UsuarioAutenticado coordinador =
-            new UsuarioAutenticado(1, "coordinador", "hash", RolSistema.COORDINADOR, true);
+            new UsuarioAutenticado(1, "coordinador", "hash", RolSistema.COORDINADOR, true, false);
 
     @Test
     void generaYValidaToken() {

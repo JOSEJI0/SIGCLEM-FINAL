@@ -28,7 +28,7 @@ import mx.edu.itch.sigclem.constancias.dto.ElegibilidadConstanciaDTO;
 import mx.edu.itch.sigclem.constancias.dto.RechazarConstanciaRequest;
 import mx.edu.itch.sigclem.constancias.service.ConstanciaService;
 
-@Tag(name = "10. Constancias", description = "CU-14 y CU-15: solicitud, emisión con folio y PDF.")
+@Tag(name = "10. Constancias", description = "CU-14 y CU-15: solicitud, emisión con folio y constancia Word.")
 @RestController
 @RequestMapping("/api/v1/constancias")
 @RequiredArgsConstructor
@@ -106,5 +106,20 @@ public class ConstanciaController {
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         ContentDisposition.attachment().filename("constancia-" + id + ".pdf").build().toString())
                 .body(pdf);
+    }
+
+    @GetMapping("/{id}/word")
+    @PreAuthorize("hasAnyRole('ALUMNO','COORDINADOR','JEFA_DGTV')")
+    @Operation(summary = "Descargar constancia Word", description = "Rol: [Alumno][Coordinador][Jefa DGTV]")
+    public ResponseEntity<Resource> descargarWord(@PathVariable Integer id, Authentication authentication) {
+        boolean esAlumno = authentication.getAuthorities().stream()
+                .anyMatch(authority -> authority.getAuthority().equals("ROLE_ALUMNO"));
+        Resource word = service.descargarWord(id, authentication.getName(), esAlumno);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename("constancia-" + id + ".docx").build().toString())
+                .body(word);
     }
 }

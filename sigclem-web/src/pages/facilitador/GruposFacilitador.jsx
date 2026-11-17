@@ -66,8 +66,8 @@ export default function GruposFacilitador() {
 
   function pdf() {
     verDocumento({
-      titulo: `Acta de calificaciones · ${acta.grupo.intensivo ? 'Intensivo' : acta.grupo.nivel} ${acta.grupo.clave} · ${acta.grupo.periodo}`,
-      nombre: `acta-${(acta.grupo.intensivo ? 'intensivo' : acta.grupo.nivel).replace(/\s+/g, '-')}-${acta.grupo.clave}`,
+      titulo: `Acta de calificaciones · ${acta.grupo.intensivo ? 'Intensivo · 10 niveles' : [acta.grupo.nivel, acta.grupo.nivelSecundario].filter(Boolean).join(' + ')} ${acta.grupo.clave} · ${acta.grupo.periodo}`,
+      nombre: `acta-${(acta.grupo.intensivo ? 'intensivo' : [acta.grupo.nivel, acta.grupo.nivelSecundario].filter(Boolean).join('-')).replace(/\s+/g, '-')}-${acta.grupo.clave}`,
       cargar: () => descargarActaPdf(acta.grupo.id),
     });
   }
@@ -80,14 +80,20 @@ export default function GruposFacilitador() {
       const resultado = await obtenerActa(id);
       setActa(resultado);
       if (resultado.grupo.idPeriodo && String(resultado.grupo.idPeriodo) !== periodoId) setPeriodoId(String(resultado.grupo.idPeriodo));
-      setCalificaciones(Object.fromEntries(resultado.alumnos.map((a) => [a.numeroControl, a.calificacionFinal ?? ''])));
+      setCalificaciones(Object.fromEntries(resultado.alumnos.map((a) => [a.numeroControl, {
+        principal: a.calificacionFinal ?? '',
+        secundario: a.calificacionSecundaria ?? '',
+      }])));
     } catch (e) {
       setError(mensajeError(e));
     }
   }
 
-  function cambiarCalificacion(numeroControl, valor) {
-    setCalificaciones((previo) => ({ ...previo, [numeroControl]: valor }));
+  function cambiarCalificacion(numeroControl, nivel, valor) {
+    setCalificaciones((previo) => ({
+      ...previo,
+      [numeroControl]: { ...previo[numeroControl], [nivel]: valor },
+    }));
   }
 
   async function guardar(evento) {
@@ -99,7 +105,9 @@ export default function GruposFacilitador() {
     try {
       const actualizada = await guardarCalificaciones(acta.grupo.id, acta.alumnos.map((alumno) => ({
         numeroControl: alumno.numeroControl,
-        calificacion: calificaciones[alumno.numeroControl] === '' ? null : Number(calificaciones[alumno.numeroControl]),
+        calificacion: calificaciones[alumno.numeroControl]?.principal === '' ? null : Number(calificaciones[alumno.numeroControl]?.principal),
+        calificacionSecundaria: !acta.grupo.idNivelSecundario || calificaciones[alumno.numeroControl]?.secundario === ''
+          ? null : Number(calificaciones[alumno.numeroControl]?.secundario),
       })));
       setActa(actualizada);
       setAviso('Las calificaciones quedaron guardadas. El acta permanece abierta hasta que la cierres.');
@@ -118,7 +126,9 @@ export default function GruposFacilitador() {
     try {
       const calificacionesGuardadas = await guardarCalificaciones(acta.grupo.id, acta.alumnos.map((alumno) => ({
         numeroControl: alumno.numeroControl,
-        calificacion: Number(calificaciones[alumno.numeroControl]),
+        calificacion: Number(calificaciones[alumno.numeroControl]?.principal),
+        calificacionSecundaria: acta.grupo.idNivelSecundario
+          ? Number(calificaciones[alumno.numeroControl]?.secundario) : null,
       })));
       setActa(calificacionesGuardadas);
       const cerrada = await cerrarActa(acta.grupo.id);
@@ -134,14 +144,21 @@ export default function GruposFacilitador() {
   }
 
   const todasCapturadas = acta?.alumnos.length > 0
-    && acta.alumnos.every((alumno) => calificaciones[alumno.numeroControl] !== ''
-      && Number.isFinite(Number(calificaciones[alumno.numeroControl]))
-      && Number(calificaciones[alumno.numeroControl]) >= 0
-      && Number(calificaciones[alumno.numeroControl]) <= 100);
-  const sinPago = acta ? acta.alumnos.filter((alumno) => alumno.estatusPago !== 'Liquidada') : [];
-  const capturadas = acta ? acta.alumnos.filter((alumno) => calificaciones[alumno.numeroControl] !== '').length : 0;
-  const periodoEditable = acta && fechaLocal() >= acta.grupo.fechaInicioPeriodo
-    && fechaLocal() <= acta.grupo.fechaFinPeriodo;
+    && acta.alumnos.every((alumno) => {
+      const notas = calificaciones[alumno.numeroControl] || {};
+      const valida = (valor) => valor !== '' && Number.isFinite(Number(valor)) && Number(valor) >= 0 && Number(valor) <= 100;
+      return valida(notas.principal) && (!acta.grupo.idNivelSecundario || valida(notas.secundario));
+    });
+  const sinPago = acta ? acta.alumnos.filter((alumno) => alumno.estatusPago !== 'Liquidada'
+    || acta.grupo.idNivelSecundario && alumno.estatusPagoSecundario !== 'Liquidada') : [];
+  const totalCalificaciones = acta ? acta.alumnos.length * (acta.grupo.idNivelSecundario ? 2 : 1) : 0;
+  const capturadas = acta ? acta.alumnos.reduce((total, alumno) => {
+    const notas = calificaciones[alumno.numeroControl] || {};
+    return total + (notas.principal !== '' ? 1 : 0)
+      + (acta.grupo.idNivelSecundario && notas.secundario !== '' ? 1 : 0);
+  }, 0) : 0;
+  const periodoEditable = acta && fechaLocal() >= acta.grupo.fechaInicioCaptura
+    && fechaLocal() <= acta.grupo.fechaFinCaptura;
 
   return (
     <div className="grid grid-cols-1 gap-[18px] xl:grid-cols-[0.8fr_1.2fr]">
@@ -163,8 +180,11 @@ export default function GruposFacilitador() {
                 type="button"
                 onClick={() => setParams({ grupo: String(grupo.id) })}
               >
-                <span className="flex items-center justify-between gap-2 font-semibold">{grupo.intensivo ? 'Intensivo' : grupo.nivel} · {grupo.clave}<span className="text-xs font-normal">{grupo.estatusActa}</span></span>
-                <span className="mt-1 block text-xs text-tenue">{grupo.modalidad} · {grupo.aula} · {grupo.alumnosInscritos}/{grupo.cupo} alumnos</span>
+                <span className="flex items-center justify-between gap-2 font-semibold">
+                  {grupo.intensivo ? 'Intensivo · 10 niveles' : [grupo.nivel, grupo.nivelSecundario].filter(Boolean).join(' + ')} · {grupo.clave}
+                  <span className="text-xs font-normal">{grupo.estatusActa}</span>
+                </span>
+                <span className="mt-1 block text-xs text-tenue">{grupo.modalidad} · {grupo.aula} · {grupo.alumnosInscritos}/{grupo.cupo ?? 'cupo pendiente'} alumnos</span>
                 <span className="mt-1 block text-xs">{grupo.horarios.map((h) => `${DIAS[h.diaSemana - 1]} ${h.horaInicio.slice(0, 5)}–${h.horaFin.slice(0, 5)}`).join(' · ')}</span>
               </button>
             ))}
@@ -172,13 +192,14 @@ export default function GruposFacilitador() {
         )}
       </Tarjeta>
 
-      <Tarjeta titulo={acta ? `Acta · ${acta.grupo.intensivo ? 'Intensivo' : acta.grupo.nivel} ${acta.grupo.clave}` : 'Acta de calificaciones'} icono={ClipboardCheck}>
+      <Tarjeta titulo={acta ? `Acta · ${acta.grupo.intensivo ? 'Intensivo · 10 niveles' : [acta.grupo.nivel, acta.grupo.nivelSecundario].filter(Boolean).join(' + ')} ${acta.grupo.clave}` : 'Acta de calificaciones'} icono={ClipboardCheck}>
         {!acta ? <p className="text-sm text-tenue">Selecciona un grupo para consultar su lista y capturar las calificaciones finales.</p>
           : <>
             {aviso && <Alerta tipo="ok" className="mb-3">{aviso}</Alerta>}
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs text-tenue">
-                {acta.grupo.periodo} · {acta.alumnos.length} alumnos · {capturadas} calificaciones capturadas · Estado: {acta.grupo.estatusActa}
+                {acta.grupo.periodo} · captura del {acta.grupo.fechaInicioCaptura} al {acta.grupo.fechaFinCaptura}
+                {' · '}{acta.alumnos.length} alumnos · {capturadas}/{totalCalificaciones} calificaciones · Estado: {acta.grupo.estatusActa}
               </p>
               <Boton variante="secundario" type="button" onClick={pdf}>
                 <Eye className="h-4 w-4" /> {acta.grupo.estatusActa === 'Cerrada' ? 'Ver acta (PDF)' : 'Ver acta preliminar (PDF)'}
@@ -198,26 +219,48 @@ export default function GruposFacilitador() {
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[420px] text-left text-sm">
                     <thead className="border-b border-linea text-xs text-tenue">
-                      <tr><th className="px-2 py-2">Número de control</th><th className="px-2 py-2">Alumno</th><th className="px-2 py-2">Pago</th><th className="w-32 px-2 py-2">Calificación (0–100)</th></tr>
+                      <tr>
+                        <th className="px-2 py-2">Número de control</th><th className="px-2 py-2">Alumno</th>
+                        <th className="px-2 py-2">Pago {acta.grupo.nivel}</th>
+                        <th className="w-32 px-2 py-2">Calificación {acta.grupo.nivel}</th>
+                        {acta.grupo.idNivelSecundario && <>
+                          <th className="px-2 py-2">Pago {acta.grupo.nivelSecundario}</th>
+                          <th className="w-32 px-2 py-2">Calificación {acta.grupo.nivelSecundario}</th>
+                        </>}
+                      </tr>
                     </thead>
                     <tbody>
                       {acta.alumnos.map((alumno) => (
                         <tr className="border-b border-linea last:border-0" key={alumno.numeroControl}>
                           <td className="px-2 py-2">{alumno.numeroControl}</td>
                           <td className="px-2 py-2">{alumno.nombreCompleto}</td>
-                          <td className="px-2 py-2"><Insignia tono={TONO_PAGO[alumno.estatusPago] || 'neutro'}>{alumno.estatusPago}</Insignia></td>
+                          <td className="px-2 py-2">
+                            <Insignia tono={TONO_PAGO[alumno.estatusPago] || 'neutro'}>{alumno.estatusPago}</Insignia>
+                          </td>
                           <td className="px-2 py-2">
                             <input
-                              aria-label={`Calificación de ${alumno.nombreCompleto}`}
+                              aria-label={`Calificación de ${alumno.nombreCompleto} en ${acta.grupo.nivel}`}
                               className={`${claseEntrada} w-24`}
                               disabled={!periodoEditable || acta.grupo.estatusActa === 'Cerrada'}
                               max="100"
                               min="0"
                               type="number"
-                              value={calificaciones[alumno.numeroControl]}
-                              onChange={(e) => cambiarCalificacion(alumno.numeroControl, e.target.value)}
+                              value={calificaciones[alumno.numeroControl]?.principal ?? ''}
+                              onChange={(e) => cambiarCalificacion(alumno.numeroControl, 'principal', e.target.value)}
                             />
                           </td>
+                          {acta.grupo.idNivelSecundario && <>
+                            <td className="px-2 py-2">
+                              <Insignia tono={TONO_PAGO[alumno.estatusPagoSecundario] || 'neutro'}>{alumno.estatusPagoSecundario}</Insignia>
+                            </td>
+                            <td className="px-2 py-2">
+                              <input aria-label={`Calificación de ${alumno.nombreCompleto} en ${acta.grupo.nivelSecundario}`}
+                                className={`${claseEntrada} w-24`} disabled={!periodoEditable || acta.grupo.estatusActa === 'Cerrada'}
+                                max="100" min="0" type="number"
+                                value={calificaciones[alumno.numeroControl]?.secundario ?? ''}
+                                onChange={(e) => cambiarCalificacion(alumno.numeroControl, 'secundario', e.target.value)} />
+                            </td>
+                          </>}
                         </tr>
                       ))}
                     </tbody>

@@ -11,7 +11,7 @@ import mx.edu.itch.sigclem.grupos.domain.Inscripcion;
 
 public interface BoletaRepository extends JpaRepository<Inscripcion, Integer> {
 
-    @EntityGraph(attributePaths = {"grupo", "grupo.nivel", "grupo.periodo"})
+    @EntityGraph(attributePaths = {"grupo", "grupo.nivel", "grupo.nivelSecundario", "grupo.periodo"})
     @Query("""
             select i from Inscripcion i
             where i.alumno.numeroControl = :numeroControl

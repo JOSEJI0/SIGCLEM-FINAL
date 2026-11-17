@@ -52,7 +52,8 @@ export default function Boletas() {
           </div>
         </Tarjeta>
       ) : boletas.length > 0 ? (
-        <Tarjeta titulo="Historial académico" icono={FileText} extra={`${boletas.length} cursos`}>
+        <Tarjeta titulo="Historial académico" icono={FileText}
+          extra={`${boletas.reduce((total, b) => total + (b.nivelSecundario ? 2 : 1), 0)} niveles cursados`}>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-left">
               <thead><tr className="border-b border-linea text-xs text-tenue">
@@ -61,20 +62,29 @@ export default function Boletas() {
                 <th className="py-2 pr-3">Calificación</th><th className="py-2 pr-3">Resultado</th>
                 <th className="py-2">Cierre de acta</th>
               </tr></thead>
-              <tbody>{boletas.map((boleta) => (
-                <tr className="border-b border-linea last:border-0" key={boleta.idInscripcion}>
-                  <td className="py-3 pr-3">
-                    <div className="font-medium">{boleta.periodo}</div>
-                    <div className="text-[11px] text-tenue">{fecha(boleta.fechaInicio)} – {fecha(boleta.fechaFin)}</div>
-                  </td>
-                  <td className="py-3 pr-3">{boleta.nivel}. {boleta.nombreNivel}</td>
-                  <td className="py-3 pr-3">{boleta.grupo}</td>
-                  <td className="py-3 pr-3">{boleta.oportunidad === 'R1' ? 'Repetición' : 'Ordinaria'}</td>
-                  <td className="py-3 pr-3 font-semibold">{boleta.calificacion ?? '—'}</td>
-                  <td className="py-3 pr-3"><Insignia tono={tono(boleta.resultado)}>{boleta.resultado}</Insignia></td>
-                  <td className="py-3">{fecha(boleta.fechaCierreActa)}</td>
-                </tr>
-              ))}</tbody>
+              <tbody>{boletas.flatMap((boleta) => {
+                const fila = (nivel, nombreNivel, calificacion, resultado, sufijo) => (
+                  <tr className="border-b border-linea last:border-0" key={`${boleta.idInscripcion}-${sufijo}`}>
+                    <td className="py-3 pr-3">
+                      <div className="font-medium">{boleta.periodo}</div>
+                      <div className="text-[11px] text-tenue">{fecha(boleta.fechaInicio)} – {fecha(boleta.fechaFin)}</div>
+                    </td>
+                    <td className="py-3 pr-3">{nivel}. {nombreNivel}</td>
+                    <td className="py-3 pr-3">{boleta.grupo}</td>
+                    <td className="py-3 pr-3">{boleta.oportunidad === 'R1' ? 'Repetición' : 'Ordinaria'}</td>
+                    <td className="py-3 pr-3 font-semibold">{calificacion ?? '—'}</td>
+                    <td className="py-3 pr-3"><Insignia tono={tono(resultado)}>{resultado}</Insignia></td>
+                    <td className="py-3">{fecha(boleta.fechaCierreActa)}</td>
+                  </tr>
+                );
+                return [
+                  fila(boleta.nivel, boleta.nombreNivel, boleta.calificacion, boleta.resultado, 'principal'),
+                  ...(boleta.nivelSecundario
+                    ? [fila(boleta.nivelSecundario, boleta.nombreNivelSecundario,
+                      boleta.calificacionSecundaria, boleta.resultadoSecundario, 'secundario')]
+                    : []),
+                ];
+              })}</tbody>
             </table>
           </div>
         </Tarjeta>

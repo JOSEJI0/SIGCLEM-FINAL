@@ -12,9 +12,16 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import mx.edu.itch.sigclem.alumnos.domain.Alumno;
 import mx.edu.itch.sigclem.alumnos.repository.AlumnoRepository;
+import mx.edu.itch.sigclem.alumnos.service.AlumnoService;
 import mx.edu.itch.sigclem.comun.excepcion.ConflictoException;
 import mx.edu.itch.sigclem.comun.excepcion.DatosInvalidosException;
 import mx.edu.itch.sigclem.comun.excepcion.RecursoNoEncontradoException;
+import mx.edu.itch.sigclem.constancias.domain.FolioConstanciaUsado;
+import mx.edu.itch.sigclem.constancias.dto.MembreteConstancia;
+import mx.edu.itch.sigclem.constancias.repository.FolioConstanciaUsadoRepository;
+import mx.edu.itch.sigclem.constancias.service.ArchivoConstanciaService;
+import mx.edu.itch.sigclem.constancias.service.ConfiguracionConstanciaService;
+import mx.edu.itch.sigclem.constancias.service.ConstanciaWordService;
 import mx.edu.itch.sigclem.lenguasmaternas.domain.LenguaMaterna;
 import mx.edu.itch.sigclem.lenguasmaternas.domain.RegistroLenguaMaterna;
 import mx.edu.itch.sigclem.lenguasmaternas.dto.EstatusLenguaRequest;
@@ -36,8 +43,13 @@ public class LenguaMaternaService {
     private final LenguaMaternaRepository lenguaRepository;
     private final RegistroLenguaMaternaRepository registroRepository;
     private final AlumnoRepository alumnoRepository;
+    private final AlumnoService alumnoService;
     private final UsuarioRepository usuarioRepository;
     private final ArchivoLenguaMaternaService archivoService;
+    private final ArchivoConstanciaService archivoConstanciaService;
+    private final ConstanciaWordService constanciaWordService;
+    private final ConfiguracionConstanciaService configuracionConstanciaService;
+    private final FolioConstanciaUsadoRepository folioRepository;
 
     @Transactional(readOnly = true)
     public List<LenguaMaternaDTO> listarLenguas() {
@@ -93,6 +105,18 @@ public class LenguaMaternaService {
             throw new DatosInvalidosException("LENG-001",
             "Debes adjuntar tu CURP, tu comprobante de domicilio y tu INE.");
         }
+        if (existente != null && existente.getDocumentoRechazado() != null) {
+            MultipartFile documentoObservado = switch (existente.getDocumentoRechazado()) {
+                case "curp" -> curp;
+                case "domicilio" -> domicilio;
+                case "ine" -> ine;
+                default -> null;
+            };
+            if (!hay(documentoObservado)) {
+                throw new DatosInvalidosException("LENG-019",
+                        "Debes reemplazar el documento señalado por coordinación antes de reenviar.");
+            }
+        }
 
         RegistroLenguaMaterna registro = existente == null ? new RegistroLenguaMaterna() : existente;
         registro.setAlumno(alumno);
@@ -101,23 +125,15 @@ public class LenguaMaternaService {
         registro.setEstatus("Pendiente");
         registro.setFechaRegistro(LocalDate.now());
         registro.setUsuarioValida(null);
+        registro.setDocumentoRechazado(null);
+        registro.setMotivoRechazo(null);
         registro.setDocumentoCurp(guardarReemplazando(curp, registro.getDocumentoCurp()));
         registro.setDocumentoDomicilio(guardarReemplazando(domicilio, registro.getDocumentoDomicilio()));
         registro.setDocumentoIne(guardarReemplazando(ine, registro.getDocumentoIne()));
-        
-        if (curp != null && !curp.isEmpty()) {
-            registro.setDocumentoCurp(archivoService.guardar(curp));
-        }
-        if (domicilio != null && !domicilio.isEmpty()) {
-            registro.setDocumentoDomicilio(archivoService.guardar(domicilio));
-        }
-        if (ine != null && !ine.isEmpty()) {
-            registro.setDocumentoIne(archivoService.guardar(ine));
-        }
-        if (documentoGeneral != null && !documentoGeneral.isEmpty()) {
+        if (hay(documentoGeneral)) {
             registro.setDocumento(archivoService.guardar(documentoGeneral));
         }
-        
+
         RegistroLenguaDTO resultado = RegistroLenguaDTO.desde(registroRepository.save(registro));
         return new ResultadoRegistro(resultado, existente != null);
     }
@@ -143,17 +159,14 @@ public class LenguaMaternaService {
             throw new DatosInvalidosException("LENG-009", "Solo coordinación puede subir documentos de acreditación.");
         }
 
-        if (intercultural != null && !intercultural.isEmpty()) {
-            registro.setDocumentoIntercultural(archivoService.guardar(intercultural));
-        }
-        if (constancia != null && !constancia.isEmpty()) {
-            registro.setConstanciaAcreditacion(archivoService.guardar(constancia));
-        }
         if (!hay(intercultural) && !hay(constancia)) {
-    throw new DatosInvalidosException("LENG-015", "Adjunta el documento de la universidad intercultural o la constancia de acreditación.");
-        } 
-            registro.setDocumentoIntercultural(guardarReemplazando(intercultural, registro.getDocumentoIntercultural()));
-            registro.setConstanciaAcreditacion(guardarReemplazando(constancia, registro.getConstanciaAcreditacion()));
+            throw new DatosInvalidosException("LENG-015",
+                    "Adjunta el documento de la Universidad Intercultural.");
+        }
+        registro.setDocumentoIntercultural(
+                guardarReemplazando(intercultural, registro.getDocumentoIntercultural()));
+        registro.setConstanciaAcreditacion(
+                guardarReemplazando(constancia, registro.getConstanciaAcreditacion()));
 
         return RegistroLenguaDTO.desde(registroRepository.save(registro));
     }
@@ -168,8 +181,36 @@ public class LenguaMaternaService {
     public RegistroLenguaDTO cambiarEstatus(Integer id, EstatusLenguaRequest solicitud, String nombreUsuario) {
         RegistroLenguaMaterna registro = registroRepository.findConRelacionesById(id)
                 .orElseThrow(() -> new RecursoNoEncontradoException("LENG-006", "No se encontró el registro."));
-        if (!"Pendiente".equals(registro.getEstatus())) {
-            throw new DatosInvalidosException("LENG-007", "Solo se pueden revisar registros pendientes.");
+        boolean esRevalidacion = "Validado".equals(registro.getEstatus())
+                && "Validado".equals(solicitud.estatus());
+        if (!"Pendiente".equals(registro.getEstatus()) && !esRevalidacion) {
+            throw new DatosInvalidosException("LENG-007",
+                    "Solo se pueden revisar registros pendientes o volver a validar registros validados.");
+        }
+        if ("Rechazado".equals(solicitud.estatus())) {
+            if (solicitud.documentoRechazado() == null
+                    || !java.util.Set.of("curp", "domicilio", "ine")
+                            .contains(solicitud.documentoRechazado())) {
+                throw new DatosInvalidosException("LENG-017", "Selecciona el documento que debe corregirse.");
+            }
+            if (solicitud.motivoRechazo() == null || solicitud.motivoRechazo().isBlank()) {
+                throw new DatosInvalidosException("LENG-018", "Escribe el motivo del rechazo.");
+            }
+        }
+        if ("Validado".equals(solicitud.estatus())
+                && registro.getDocumentoIntercultural() == null) {
+            throw new DatosInvalidosException("LENG-016",
+                    "Para validar, coordinación debe cargar el documento de la Universidad Intercultural.");
+        }
+        String folio = null;
+        if ("Validado".equals(solicitud.estatus()) && !esRevalidacion) {
+            if (solicitud.folio() == null || solicitud.folio().isBlank()) {
+                throw new DatosInvalidosException("LENG-020", "Captura el folio para generar la constancia Word.");
+            }
+            folio = solicitud.folio().trim().toUpperCase(java.util.Locale.ROOT);
+            if (folioRepository.existsById(folio)) {
+                throw new ConflictoException("LENG-021", "El folio ya está asignado. Captura uno diferente.");
+            }
         }
         Usuario coordinador = usuarioRepository.findByNombreUsuario(nombreUsuario)
                 .orElseThrow(() -> new RecursoNoEncontradoException("LENG-008", "No se encontró la cuenta autenticada."));
@@ -177,9 +218,39 @@ public class LenguaMaternaService {
                 && coordinador.getRol().comoRolSistema() != RolSistema.ADMIN) {
             throw new DatosInvalidosException("LENG-009", "Solo coordinación puede revisar registros.");
         }
+        String archivoWord = null;
+        if (folio != null) {
+            Alumno alumno = registro.getAlumno();
+            MembreteConstancia membrete = configuracionConstanciaService.membreteVigente();
+            byte[] word = constanciaWordService.generarLenguaMaterna(
+                    alumno.nombreCompleto(), alumno.getNumeroControl(), alumno.getCarrera().getNombre(),
+                    alumno.getCarrera().getClavePlan(), registro.getLengua().getNombre(), alumno.getSexo(),
+                    folio, LocalDate.now(), membrete);
+            archivoWord = archivoConstanciaService.guardarWord(
+                    ConstanciaWordService.LENGUA_MATERNA, registro.getId(), word);
+            registro.setFolioConstancia(folio);
+            registro.setConstanciaWord(archivoWord);
+        }
         registro.setEstatus(solicitud.estatus());
+        registro.setDocumentoRechazado("Rechazado".equals(solicitud.estatus())
+                ? solicitud.documentoRechazado() : null);
+        registro.setMotivoRechazo("Rechazado".equals(solicitud.estatus())
+                ? solicitud.motivoRechazo().trim() : null);
         registro.setUsuarioValida(coordinador);
-        return RegistroLenguaDTO.desde(registro);
+        try {
+            if (folio != null) folioRepository.saveAndFlush(new FolioConstanciaUsado(folio));
+            RegistroLenguaDTO resultado = RegistroLenguaDTO.desde(registroRepository.save(registro));
+            if ("Validado".equals(solicitud.estatus())) {
+                alumnoService.liberarIdiomaPorLenguaMaterna(registro.getAlumno().getNumeroControl());
+            }
+            return resultado;
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            if (archivoWord != null) archivoConstanciaService.eliminarWord(archivoWord);
+            throw new ConflictoException("LENG-021", "El folio ya está asignado. Captura uno diferente.");
+        } catch (RuntimeException e) {
+            if (archivoWord != null) archivoConstanciaService.eliminarWord(archivoWord);
+            throw e;
+        }
     }
 
     @Transactional(readOnly = true)
@@ -193,13 +264,21 @@ public class LenguaMaternaService {
             }
         }
         String nombreArchivo = null;
+        boolean esWord = false;
         if (tipo != null) {
             switch (tipo.toLowerCase().trim()) {
                 case "curp" -> nombreArchivo = registro.getDocumentoCurp();
                 case "domicilio" -> nombreArchivo = registro.getDocumentoDomicilio();
                 case "ine" -> nombreArchivo = registro.getDocumentoIne();
                 case "intercultural" -> nombreArchivo = registro.getDocumentoIntercultural();
-                case "constancia" -> nombreArchivo = registro.getConstanciaAcreditacion();
+                case "constancia" -> {
+                    if (registro.getConstanciaWord() != null) {
+                        nombreArchivo = registro.getConstanciaWord();
+                        esWord = true;
+                    } else {
+                        nombreArchivo = registro.getConstanciaAcreditacion();
+                    }
+                }
                 case "general" -> nombreArchivo = registro.getDocumento();
             }
         }
@@ -213,6 +292,10 @@ public class LenguaMaternaService {
         }
         if (nombreArchivo == null && tipo != null) {
             throw new RecursoNoEncontradoException("LENG-002", "Ese documento aún no se ha cargado.");
+        }
+        if (esWord) {
+            return new DocumentoLengua(archivoConstanciaService.cargarWord(nombreArchivo),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
         }
         return new DocumentoLengua(archivoService.cargar(nombreArchivo),
                 archivoService.tipoContenido(nombreArchivo));

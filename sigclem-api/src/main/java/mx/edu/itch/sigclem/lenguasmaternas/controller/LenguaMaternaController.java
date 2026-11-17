@@ -86,7 +86,7 @@ public class LenguaMaternaController {
 
     @PostMapping(value = "/registros/{id}/documentos-coordinacion", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasRole('COORDINADOR')")
-    @Operation(summary = "Subir documento intercultural y/o constancia de acreditación", description = "Rol: [Coordinador]")
+    @Operation(summary = "Subir evidencia de la Universidad Intercultural", description = "Rol: [Coordinador]")
     public RegistroLenguaDTO subirDocumentosCoordinacion(
             @PathVariable Integer id,
             @RequestPart(value = "intercultural", required = false) MultipartFile intercultural,
@@ -104,7 +104,7 @@ public class LenguaMaternaController {
 
     @PatchMapping("/registros/{id}/estatus")
     @PreAuthorize("hasRole('COORDINADOR')")
-    @Operation(summary = "Validar o rechazar registro", description = "Rol: [Coordinador]")
+    @Operation(summary = "Validar o rechazar registro con observaciones", description = "Rol: [Coordinador]")
     public RegistroLenguaDTO cambiarEstatus(
             @PathVariable Integer id,
             @Valid @RequestBody EstatusLenguaRequest solicitud,
@@ -126,11 +126,14 @@ public class LenguaMaternaController {
                         || authority.getAuthority().equals("ROLE_JEFA_DGTV"));
         LenguaMaternaService.DocumentoLengua documento = lenguaService.obtenerDocumento(
                 id, tipo, authentication.getName(), coordinacion);
-        String extension = documento.tipoContenido().contains("pdf") ? ".pdf" : documento.tipoContenido().contains("png") ? ".png" : ".jpg";
+        String extension = documento.tipoContenido().contains("wordprocessingml") ? ".docx"
+                : documento.tipoContenido().contains("pdf") ? ".pdf"
+                : documento.tipoContenido().contains("png") ? ".png" : ".jpg";
         String filename = "lengua-materna-" + id + (tipo != null ? "-" + tipo : "") + extension;
+        String disposition = documento.tipoContenido().contains("wordprocessingml") ? "attachment" : "inline";
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(documento.tipoContenido()))
-                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + filename + "\"")
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition + "; filename=\"" + filename + "\"")
                 .header("X-Content-Type-Options", "nosniff")
                 .body(documento.recurso());
     }

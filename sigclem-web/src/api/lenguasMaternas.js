@@ -10,15 +10,15 @@ export const registrarLenguaMaterna = (datos, { curp, domicilio, ine }) => {
   const f = new FormData();
   f.append('idLengua', datos.idLengua ?? '');
   if (datos.nivelDominio) f.append('nivelDominio', datos.nivelDominio);
-  f.append('curp', curp);
-  f.append('domicilio', domicilio);
-  f.append('ine', ine);
+  if (curp) f.append('curp', curp);
+  if (domicilio) f.append('domicilio', domicilio);
+  if (ine) f.append('ine', ine);
   return api.post('/lenguas-maternas/registros', f).then((r) => r.data);
 };
 export const listarRegistrosLenguasMaternas = () =>
   api.get('/lenguas-maternas/registros').then((respuesta) => respuesta.data);
-export const cambiarEstatusLenguaMaterna = (id, estatus) =>
-  api.patch(`/lenguas-maternas/registros/${encodeURIComponent(id)}/estatus`, { estatus })
+export const cambiarEstatusLenguaMaterna = (id, solicitud) =>
+  api.patch(`/lenguas-maternas/registros/${encodeURIComponent(id)}/estatus`, solicitud)
     .then((respuesta) => respuesta.data);
 export const descargarDocumentoLenguaMaterna = (id, tipo) =>
   api.get(`/lenguas-maternas/registros/${encodeURIComponent(id)}/documento${tipo ? `/${tipo}` : ''}`,

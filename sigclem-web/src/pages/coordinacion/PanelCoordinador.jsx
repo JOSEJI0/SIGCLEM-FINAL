@@ -164,7 +164,7 @@ const avisos = [
     ...datos.grupos.filter((grupo) => grupo.estatusActa !== 'Cerrada').map((grupo) => ({
       clave: `acta-${grupo.id}`,
       tipo: 'Acta abierta',
-      titulo: `${grupo.clave} · ${grupo.intensivo ? 'Intensivo' : grupo.nivel}`,
+      titulo: `${grupo.clave} · ${grupo.intensivo ? 'Intensivo · 10 niveles' : [grupo.nivel, grupo.nivelSecundario].filter(Boolean).join(' + ')}`,
       detalle: `${grupo.alumnosInscritos} inscritos · facilitador: ${grupo.facilitador}`,
       ruta: `${base}/grupos`,
     })),

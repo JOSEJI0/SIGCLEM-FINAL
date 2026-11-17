@@ -17,7 +17,7 @@ import mx.edu.itch.sigclem.seguridad.repository.UsuarioRepository;
 
 /**
  * Contraseñas administradas por coordinación: el coordinador cambia la suya y asigna una nueva a los alumnos y a la
- * jefa del DGTV (las de los facilitadores se asignan en su módulo). Nadie más cambia contraseñas desde el sistema.
+ * jefa del DGTV (las de los facilitadores se asignan en su módulo). Los usuarios cambian su contraseña propia.
  */
 @Service
 @RequiredArgsConstructor
@@ -63,6 +63,7 @@ public class CuentaService {
 
     private void guardar(Usuario usuario, String nueva) {
         usuario.setContrasenaHash(passwordEncoder.encode(nueva));
+        usuario.setRequiereCambioContrasena(false);
         usuarioRepository.save(usuario);
     }
 

@@ -18,6 +18,7 @@ public record OfertaDTO(Integer nivelNumero, String nivel, String mensaje, List<
     }
 
     public record Asignacion(GrupoDTO grupo, Integer idCargo, BigDecimal montoCargo, BigDecimal saldoPendiente,
-            String estatusPago) {
+            String estatusPago, Integer idCargoSecundario, BigDecimal montoCargoSecundario,
+            BigDecimal saldoPendienteSecundario, String estatusPagoSecundario) {
     }
 }

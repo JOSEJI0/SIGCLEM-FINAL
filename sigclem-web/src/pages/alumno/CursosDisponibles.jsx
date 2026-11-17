@@ -57,7 +57,7 @@ export default function CursosDisponibles() {
   const eleccion = oferta?.grupos.find((g) => g.elegido);
   const sesiones = (oferta?.grupos || []).flatMap(({ grupo, elegido }) => grupo.horarios.map((h, i) => ({
     clave: `${grupo.id}-${i}`, dia: h.diaSemana, inicio: h.horaInicio, fin: h.horaFin,
-    titulo: `${grupo.intensivo ? 'Intensivo' : grupo.nivel} ${grupo.clave}`, detalle: grupo.modalidad,
+    titulo: `${grupo.intensivo ? 'Intensivo · 10 niveles' : [grupo.nivel, grupo.nivelSecundario].filter(Boolean).join(' + ')} ${grupo.clave}`, detalle: grupo.modalidad,
     color: colorNivel(elegido ? 2 : grupo.nivelNumero), atenuada: eleccion && !elegido,
   })));
 
@@ -68,10 +68,11 @@ export default function CursosDisponibles() {
 
       {oferta?.inscripciones.length > 0 && (
         <Tarjeta titulo="Tu grupo asignado" icono={CheckCircle2}>
-          {oferta.inscripciones.map(({ grupo, montoCargo, saldoPendiente, estatusPago }) => (
+          {oferta.inscripciones.map(({ grupo, montoCargo, saldoPendiente, estatusPago,
+            montoCargoSecundario, saldoPendienteSecundario, estatusPagoSecundario }) => (
             <div key={grupo.id} className="grid gap-4 md:grid-cols-[1fr_auto]">
               <div>
-                <div className="text-lg font-semibold">{grupo.intensivo ? 'Intensivo (Básico 1–Intermedio 5)' : grupo.nivel} · Grupo {grupo.clave}</div>
+                <div className="text-lg font-semibold">{grupo.intensivo ? 'Intensivo · 10 niveles' : [grupo.nivel, grupo.nivelSecundario].filter(Boolean).join(' + ')} · Grupo {grupo.clave}</div>
                 <div className="mb-2 text-[13px] text-tenue">
                   {grupo.periodo} · {grupo.modalidad} · {grupo.aula} · {grupo.facilitador}
                 </div>
@@ -85,6 +86,15 @@ export default function CursosDisponibles() {
                 {estatusPago !== 'Liquidada' && (
                   <Link to="/alumno/pagos" className="font-semibold text-marino hover:underline">Ir a Pagos para registrar tu comprobante →</Link>
                 )}
+                {grupo.idNivelSecundario && <>
+                  <div className="my-2 border-t border-linea pt-2 font-semibold">{grupo.nivelSecundario}</div>
+                  <div>Monto del curso: <b>{pesos(montoCargoSecundario)}</b></div>
+                  <div>Saldo pendiente: <b>{pesos(saldoPendienteSecundario)}</b></div>
+                  <div className="my-2"><Insignia estatus={estatusPagoSecundario} /></div>
+                  {estatusPagoSecundario !== 'Liquidada' && (
+                    <Link to="/alumno/pagos" className="font-semibold text-marino hover:underline">Ir a Pagos para registrar este comprobante →</Link>
+                  )}
+                </>}
               </div>
             </div>
           ))}
@@ -122,7 +132,7 @@ export default function CursosDisponibles() {
                     className={`flex flex-col gap-3 rounded-xl border p-4 ${elegido ? 'border-marino ring-2 ring-marino/15' : 'border-linea'}`}>
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <div className="font-semibold">{grupo.intensivo ? 'Intensivo (Básico 1–Intermedio 5)' : grupo.nivel} · Grupo {grupo.clave}</div>
+                        <div className="font-semibold">{grupo.intensivo ? 'Intensivo · 10 niveles' : [grupo.nivel, grupo.nivelSecundario].filter(Boolean).join(' + ')} · Grupo {grupo.clave}</div>
                         <div className="text-xs text-tenue">{grupo.periodo} · {grupo.modalidad}</div>
                       </div>
                       {elegido && <Insignia estatus={estatusEleccion === 'Asignada' ? 'Asignada' : 'Pendiente'}>{estatusEleccion === 'Asignada' ? 'Asignado' : 'Tu elección'}</Insignia>}
@@ -131,7 +141,7 @@ export default function CursosDisponibles() {
                     <div className="grid gap-1 text-[12.5px] text-tenue">
                       <span className="flex items-center gap-1.5"><UserRound className="h-3.5 w-3.5" /> {grupo.facilitador}</span>
                       <span className="flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5" /> {grupo.aula}</span>
-                      <span className="flex items-center gap-1.5"><Users className="h-3.5 w-3.5" /> {grupo.alumnosInscritos} de {grupo.cupo} lugares ocupados</span>
+                      <span className="flex items-center gap-1.5"><Users className="h-3.5 w-3.5" /> {grupo.alumnosInscritos} de {grupo.cupo ?? 'cupo pendiente'} lugares ocupados</span>
                     </div>
                     <div className="mt-auto">
                       {elegido ? (
@@ -143,7 +153,7 @@ export default function CursosDisponibles() {
                         )
                       ) : (
                         <Boton className="w-full" disabled={lleno || ocupado === grupo.id || Boolean(oferta.mensaje)}
-                          onClick={() => accion(grupo.id, elegirGrupo, `Elegiste ${grupo.intensivo ? 'Intensivo' : grupo.nivel} grupo ${grupo.clave}. Coordinación confirmará tu lugar.`)}>
+                          onClick={() => accion(grupo.id, elegirGrupo, `Elegiste ${grupo.intensivo ? 'Intensivo · 10 niveles' : [grupo.nivel, grupo.nivelSecundario].filter(Boolean).join(' + ')} grupo ${grupo.clave}. Coordinación confirmará tu lugar.`)}>
                           <Check className="h-4 w-4" /> {lleno ? 'Grupo lleno' : eleccion ? 'Cambiar a este horario' : 'Elegir este horario'}
                         </Boton>
                       )}

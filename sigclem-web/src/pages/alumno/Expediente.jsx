@@ -104,16 +104,20 @@ export default function Expediente() {
             ))}
           </dl>
         </Tarjeta>
-        <Tarjeta titulo="Avance reticular de inglés" icono={Network}
-          extra={`${exp.nivelesCubiertos} de ${exp.avance.length} niveles acreditados o exentos`}>
-          <div className="mb-3.5 h-2 rounded-md bg-neutro-fondo" role="progressbar" aria-valuenow={porcentaje} aria-valuemin={0} aria-valuemax={100}>
-            <div className="h-2 rounded-md bg-ok" style={{ width: `${porcentaje}%` }} />
-          </div>
-          <AvanceReticular avance={exp.avance} />
-          <p className="mt-3 text-xs text-tenue">
-            Pasa el mouse sobre un nivel para ver su calificación. Solo puedes cursar el nivel siguiente al último
-            acreditado o exento (validación secuencial, RF-04).
-          </p>
+        <Tarjeta titulo={exp.formaLiberacion ? 'Liberación de idioma' : 'Avance reticular de inglés'} icono={Network}
+          extra={exp.formaLiberacion ? null : `${exp.nivelesCubiertos} de ${exp.avance.length} niveles acreditados o exentos`}>
+          {!exp.formaLiberacion && (
+            <div className="mb-3.5 h-2 rounded-md bg-neutro-fondo" role="progressbar" aria-valuenow={porcentaje} aria-valuemin={0} aria-valuemax={100}>
+              <div className="h-2 rounded-md bg-ok" style={{ width: `${porcentaje}%` }} />
+            </div>
+          )}
+          <AvanceReticular avance={exp.avance} formaLiberacion={exp.formaLiberacion} />
+          {!exp.formaLiberacion && (
+            <p className="mt-3 text-xs text-tenue">
+              Pasa el mouse sobre un nivel para ver su calificación. Solo puedes cursar el nivel siguiente al último
+              acreditado o exento (validación secuencial, RF-04).
+            </p>
+          )}
         </Tarjeta>
       </div>
     </div>

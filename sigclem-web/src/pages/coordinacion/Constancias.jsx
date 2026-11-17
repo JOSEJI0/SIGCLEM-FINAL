@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Award, CheckCircle2, Eye, FilePlus2, XCircle } from 'lucide-react';
 import {
-  autorizarConstancia, descargarPdfConstancia, emitirConstanciaDirecta, listarConstancias, rechazarConstancia,
+  autorizarConstancia, descargarPdfConstancia, descargarWordConstancia, emitirConstanciaDirecta, listarConstancias, rechazarConstancia,
 } from '../../api/constancias';
 import { buscarAlumnos } from '../../api/alumnos';
 import { mensajeError } from '../../api/cliente';
@@ -33,7 +33,9 @@ export default function Constancias({ soloLectura = false }) {
 
   // Sugerencias: alumnos que ya cubrieron los diez niveles (nivel actual = idioma acreditado).
   useEffect(() => {
-    buscarAlumnos({ nivel: 0, tamano: 100 }).then((p) => setAlumnosAcreditados(p.content)).catch(() => {});
+    buscarAlumnos({ nivel: 0, tamano: 100 })
+      .then((p) => setAlumnosAcreditados(p.content.filter((alumno) => !alumno.formaLiberacion)))
+      .catch(() => {});
   }, []);
 
   const emitirDirecta = async (event) => {
@@ -99,11 +101,27 @@ export default function Constancias({ soloLectura = false }) {
     }
   };
 
-  const ver = (item) => verDocumento({
-    titulo: `Constancia de acreditación · ${item.nombreAlumno} · folio ${item.folio}`,
-    nombre: `constancia-${item.folio}`,
-    cargar: () => descargarPdfConstancia(item.id),
-  });
+  const ver = async (item) => {
+    if (item.tieneArchivoWord) {
+      try {
+        const blob = await descargarWordConstancia(item.id);
+        const url = URL.createObjectURL(blob);
+        const enlace = document.createElement('a');
+        enlace.href = url;
+        enlace.download = `constancia-${item.folio}.docx`;
+        enlace.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (err) {
+        setError(mensajeError(err));
+      }
+      return;
+    }
+    verDocumento({
+      titulo: `Constancia de acreditación · ${item.nombreAlumno} · folio ${item.folio}`,
+      nombre: `constancia-${item.folio}`,
+      cargar: () => descargarPdfConstancia(item.id),
+    });
+  };
 
   return (
     <div className="grid gap-5">
@@ -118,7 +136,7 @@ export default function Constancias({ soloLectura = false }) {
       {soloLectura && <Alerta tipo="info">Consulta de solo lectura: las operaciones las realiza la coordinación.</Alerta>}
       {!soloLectura && <Tarjeta titulo="Emitir constancia sin solicitud del alumno" icono={FilePlus2}>
         <form className="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]" onSubmit={emitirDirecta}>
-          <Campo etiqueta="Número de control" id="ncDirecta" ayuda="Debe haber acreditado o exentado los diez niveles.">
+          <Campo etiqueta="Número de control" id="ncDirecta" ayuda="Debe haber acreditado los diez niveles del programa de inglés.">
             <input id="ncDirecta" list="alumnos-acreditados" required className={claseEntrada} value={directa.numeroControl}
               onChange={(e) => setDirecta({ ...directa, numeroControl: e.target.value.toUpperCase() })} />
             <datalist id="alumnos-acreditados">
@@ -176,7 +194,7 @@ export default function Constancias({ soloLectura = false }) {
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
                     <span>Folio {item.folio} · Fecha de emisión: {fecha(item.fechaExpedicion)}</span>
                     <Boton variante="secundario" onClick={() => ver(item)}>
-                      <Eye className="h-4 w-4" /> Ver PDF
+                      <Eye className="h-4 w-4" /> {item.tieneArchivoWord ? 'Descargar Word' : 'Ver PDF'}
                     </Boton>
                   </div>
                 ) : (
@@ -222,7 +240,7 @@ export default function Constancias({ soloLectura = false }) {
             )}
             <div className="flex flex-wrap gap-2">
               <Boton type="submit" disabled={guardando}>
-                {guardando ? 'Procesando…' : modo === 'autorizar' ? 'Generar PDF y emitir' : 'Rechazar y notificar'}
+                {guardando ? 'Procesando…' : modo === 'autorizar' ? 'Generar Word y emitir' : 'Rechazar y notificar'}
               </Boton>
               <Boton variante="secundario" type="button" onClick={() => setSeleccionada(null)} disabled={guardando}>
                 Cancelar

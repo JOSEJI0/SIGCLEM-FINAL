@@ -9,5 +9,6 @@ public record ElegibilidadConstanciaDTO(
         Integer horasAcreditadas,
         String nivelMcer,
         boolean elegible,
-        List<String> nivelesFaltantes) {
+        List<String> nivelesFaltantes,
+        String formaLiberacion) {
 }

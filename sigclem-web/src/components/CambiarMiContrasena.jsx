@@ -1,7 +1,10 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { KeyRound } from 'lucide-react';
 import { mensajeError } from '../api/cliente';
 import { cambiarMiContrasena } from '../api/cuentas';
+import { useAuth } from '../auth/AuthContext';
+import { rutaInicio } from '../auth/roles';
 import { Alerta, Boton, Campo, Tarjeta, claseEntrada } from './ui';
 
 const validaContrasena = (contrasena) => contrasena.length >= 8
@@ -10,7 +13,9 @@ const validaContrasena = (contrasena) => contrasena.length >= 8
   && /\d/.test(contrasena);
 const AYUDA = 'Mínimo 8 caracteres, con al menos una letra y un número. Máximo 72 bytes UTF-8.';
 
-export default function CambiarMiContrasena() {
+export default function CambiarMiContrasena({ primerAcceso = false }) {
+  const { perfil, completarCambioContrasena } = useAuth();
+  const navegar = useNavigate();
   const [datos, setDatos] = useState({ actual: '', nueva: '', confirmacion: '' });
   const [estado, setEstado] = useState({ guardando: false, error: '', aviso: '' });
   const listo = datos.actual && validaContrasena(datos.nueva) && datos.nueva === datos.confirmacion;
@@ -21,6 +26,11 @@ export default function CambiarMiContrasena() {
     try {
       await cambiarMiContrasena(datos.actual, datos.nueva);
       setDatos({ actual: '', nueva: '', confirmacion: '' });
+      if (primerAcceso) {
+        completarCambioContrasena();
+        navegar(rutaInicio(perfil.rol), { replace: true });
+        return;
+      }
       setEstado({ guardando: false, error: '', aviso: 'Tu contraseña se actualizó. Úsala la próxima vez que inicies sesión.' });
     } catch (err) {
       setEstado({ guardando: false, error: mensajeError(err), aviso: '' });

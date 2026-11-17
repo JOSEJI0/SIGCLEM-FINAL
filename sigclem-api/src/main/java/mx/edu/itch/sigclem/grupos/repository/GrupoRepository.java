@@ -14,36 +14,36 @@ import mx.edu.itch.sigclem.grupos.domain.Grupo;
 
 public interface GrupoRepository extends JpaRepository<Grupo, Integer> {
 
-    @EntityGraph(attributePaths = { "nivel", "periodo", "modalidad", "aula", "facilitador", "horarios" })
+    @EntityGraph(attributePaths = { "nivel", "nivelSecundario", "periodo", "modalidad", "aula", "facilitador", "horarios" })
     @Query("select distinct g from Grupo g")
     List<Grupo> findAllConDatosHistoricos();
 
     boolean existsByPeriodoIdAndNivelIdAndModalidadIdAndClave(
             Integer periodoId, Integer nivelId, Integer modalidadId, String clave);
 
-    @EntityGraph(attributePaths = { "nivel", "periodo", "modalidad", "aula", "facilitador" })
+    @EntityGraph(attributePaths = { "nivel", "nivelSecundario", "periodo", "modalidad", "aula", "facilitador", "horarios" })
     List<Grupo> findByPeriodoId(Integer periodoId);
 
-    @EntityGraph(attributePaths = { "nivel", "periodo", "modalidad", "aula", "facilitador" })
+    @EntityGraph(attributePaths = { "nivel", "nivelSecundario", "periodo", "modalidad", "aula", "facilitador" })
     List<Grupo> findByPeriodoIdAndFacilitadorId(Integer periodoId, Integer facilitadorId);
 
     /** Oferta para el alumno: grupos de un nivel en periodos que aún no terminan. */
-    @EntityGraph(attributePaths = { "nivel", "periodo", "modalidad", "aula", "facilitador" })
+    @EntityGraph(attributePaths = { "nivel", "nivelSecundario", "periodo", "modalidad", "aula", "facilitador" })
     List<Grupo> findByNivelIdAndPeriodoFechaFinGreaterThanEqual(Integer nivelId, java.time.LocalDate fecha);
 
-    @EntityGraph(attributePaths = { "nivel", "periodo", "modalidad", "aula", "facilitador" })
+    @EntityGraph(attributePaths = { "nivel", "nivelSecundario", "periodo", "modalidad", "aula", "facilitador" })
     List<Grupo> findByIntensivoTrueAndPeriodoFechaFinGreaterThanEqual(java.time.LocalDate fecha);
 
     @EntityGraph(attributePaths = { "nivel", "periodo", "modalidad", "aula", "facilitador" })
     Optional<Grupo> findConDetallesById(Integer id);
 
-    @EntityGraph(attributePaths = { "nivel", "periodo" })
+    @EntityGraph(attributePaths = { "nivel", "nivelSecundario", "periodo" })
     List<Grupo> findByFacilitadorId(Integer facilitadorId);
 
     boolean existsByPeriodoIdAndNivelIdAndModalidadIdAndClaveAndIdNot(
             Integer periodoId, Integer nivelId, Integer modalidadId, String clave, Integer id);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select g from Grupo g join fetch g.nivel join fetch g.periodo where g.id = :id")
+    @Query("select g from Grupo g join fetch g.nivel left join fetch g.nivelSecundario join fetch g.periodo where g.id = :id")
     Optional<Grupo> bloquearPorId(@Param("id") Integer id);
 }

@@ -39,6 +39,9 @@ public class Usuario {
     @Column(nullable = false)
     private boolean activo = true;
 
+    @Column(name = "requiere_cambio_contrasena", nullable = false)
+    private boolean requiereCambioContrasena;
+
     public Usuario(String nombreUsuario, String contrasenaHash, Rol rol) {
         this.nombreUsuario = nombreUsuario;
         this.contrasenaHash = contrasenaHash;

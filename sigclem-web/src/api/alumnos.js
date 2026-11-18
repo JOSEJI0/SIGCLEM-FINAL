@@ -29,6 +29,11 @@ export const reactivarAlumno = (numeroControl) =>
 export const liberarIdioma = (numeroControl, forma, detalle) =>
   api.post(`/alumnos/${encodeURIComponent(numeroControl)}/liberacion`, { forma, detalle }).then((r) => r.data);
 /**
+ * Las cargas masivas desde Excel tardan cerca de un minuto con ~900 alumnos (cada fila se guarda en su propia
+ * transacción); se espera hasta 5 minutos en lugar de los 20 segundos generales.
+ */
+const ESPERA_CARGA_MASIVA = 300000;
+/**
  * Carga masiva de alumnos desde un archivo Excel (concentrado histórico o plantilla completa). La matrícula de
  * control escolar es opcional y completa semestre, sexo, correo y lengua indígena.
  */
@@ -36,14 +41,16 @@ export const cargarAlumnosExcel = (archivo, matricula) => {
   const datos = new FormData();
   datos.append('archivo', archivo);
   if (matricula) datos.append('matricula', matricula);
-  return api.post('/alumnos/carga', datos, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data);
+  return api.post('/alumnos/carga', datos, {
+    headers: { 'Content-Type': 'multipart/form-data' }, timeout: ESPERA_CARGA_MASIVA,
+  }).then((r) => r.data);
 };
 /** Completa únicamente campos vacíos de alumnos, facilitadores, grupos y horarios existentes. */
 export const completarDatosExcel = (archivo) => {
   const datos = new FormData();
   datos.append('archivo', archivo);
   return api.post('/alumnos/completar', datos, {
-    headers: { 'Content-Type': 'multipart/form-data' },
+    headers: { 'Content-Type': 'multipart/form-data' }, timeout: ESPERA_CARGA_MASIVA,
   }).then((r) => r.data);
 };
 export const descargarPlantillaAlumnos = () =>
@@ -53,7 +60,7 @@ export const cargarImportacionOperativa = (archivo) => {
   const datos = new FormData();
   datos.append('archivo', archivo);
   return api.post('/alumnos/carga-operativa', datos, {
-    headers: { 'Content-Type': 'multipart/form-data' },
+    headers: { 'Content-Type': 'multipart/form-data' }, timeout: ESPERA_CARGA_MASIVA,
   }).then((r) => r.data);
 };
 export const descargarPlantillaOperativa = () =>

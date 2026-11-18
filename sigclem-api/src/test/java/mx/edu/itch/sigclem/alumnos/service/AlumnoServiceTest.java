@@ -191,6 +191,18 @@ class AlumnoServiceTest {
                 () -> service.liberarIdioma("A12345678", "Curso intensivo", "Pago y aprobación confirmados"));
     }
 
+    @Test
+    void elFiltroDeNombreSoloAdmiteLetras() {
+        for (String invalido : new String[] { "Ana2", "22520001", "López#" }) {
+            assertThrows(DatosInvalidosException.class,
+                    () -> service.buscar(null, null, null, invalido, null, null, null, PageRequest.of(0, 20)), invalido);
+        }
+        // Acentos, ñ, espacios, guion y apóstrofo sí se aceptan.
+        when(alumnoRepository.filtrar("", null, "", "José Peña D'Alessandro Ruiz-Esparza")).thenReturn(List.of());
+        assertEquals(0, service.buscar(null, null, null, " José Peña D'Alessandro Ruiz-Esparza ", null, null, null,
+                PageRequest.of(0, 20)).getTotalElements());
+    }
+
     private static Nivel nivel(int numero, String nombre) {
         Nivel nivel = mock(Nivel.class);
         lenient().when(nivel.getId()).thenReturn(numero);

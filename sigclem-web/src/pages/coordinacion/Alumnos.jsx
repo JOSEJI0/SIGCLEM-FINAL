@@ -15,6 +15,8 @@ import { Modal } from '../../components/Modal';
 
 const FILTROS_VACIOS = { idCarrera: '', numeroControl: '', nombre: '', nivel: '', semestre: '', estatus: '', formaLiberacion: '' };
 const SEMESTRES = Array.from({ length: 15 }, (_, i) => i + 1);
+/** Caracteres que no forman parte de un nombre: todo lo que no sea letra (con acentos y ñ), espacio, guion o apóstrofo. */
+const NO_LETRAS = /[^\p{L}\s'’-]/gu;
 const SEXO = { H: 'Hombre', M: 'Mujer' };
 
 function fechaCorta(iso) {
@@ -26,6 +28,7 @@ export default function Alumnos() {
   const { perfil } = useAuth();
   const puedeEditar = esCoordinacion(perfil.rol);
   const [busqueda, setBusqueda] = useState(FILTROS_VACIOS);
+  const [avisoNombre, setAvisoNombre] = useState(false);
   const [filtro, setFiltro] = useState(FILTROS_VACIOS);
   const [carreras, setCarreras] = useState([]);
   const [niveles, setNiveles] = useState([]);
@@ -86,6 +89,12 @@ export default function Alumnos() {
       setBusqueda({ ...busqueda, nivel: n, formaLiberacion: f });
       return;
     }
+    if (campo === 'nombre') {
+      const soloLetras = val.replace(NO_LETRAS, '');
+      setAvisoNombre(soloLetras !== val);
+      setBusqueda({ ...busqueda, nombre: soloLetras });
+      return;
+    }
     setBusqueda({
       ...busqueda, [campo]: campo === 'numeroControl' ? val.toUpperCase() : val,
     });
@@ -112,9 +121,11 @@ export default function Alumnos() {
             <input id="filtroNumeroControl" className={claseEntrada} maxLength="10" placeholder="Ej. 2252"
               value={busqueda.numeroControl} onChange={cambiarFiltro('numeroControl')} />
           </Campo>
-          <Campo etiqueta="Nombre" id="filtroNombre">
+          <Campo etiqueta="Nombre" id="filtroNombre"
+            error={avisoNombre ? 'El nombre solo admite letras; para buscar por número usa «Número de control».' : undefined}>
             <input id="filtroNombre" className={claseEntrada} maxLength="100" placeholder="Nombre o apellidos"
-              value={busqueda.nombre} onChange={cambiarFiltro('nombre')} />
+              aria-invalid={avisoNombre || undefined}
+              value={busqueda.nombre} onChange={cambiarFiltro('nombre')} onBlur={() => setAvisoNombre(false)} />
           </Campo>
           <Campo etiqueta="Semestre" id="filtroSemestre">
             <select id="filtroSemestre" className={claseEntrada} value={busqueda.semestre} onChange={cambiarFiltro('semestre')}>

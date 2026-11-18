@@ -50,6 +50,8 @@ public class AlumnoService {
     /** Valor del filtro de nivel para los alumnos que ya cubrieron los diez niveles. */
     public static final int NIVEL_IDIOMA_ACREDITADO = 0;
     private static final String IDIOMA_ACREDITADO = "Idioma acreditado";
+    /** Filtro por nombre: letras (con acentos y ñ), espacios, guion y apóstrofo; sin números ni símbolos. */
+    private static final java.util.regex.Pattern NOMBRE_BUSQUEDA = java.util.regex.Pattern.compile("[\\p{L}\\s'’-]*");
 
     private final AlumnoRepository alumnoRepository;
     private final AvanceNivelRepository avanceRepository;
@@ -70,6 +72,10 @@ public class AlumnoService {
     @Transactional(readOnly = true)
     public Page<AlumnoResumenDTO> buscar(String busqueda, Integer idCarrera, String numeroControl, String nombre,
             Integer nivel, Integer semestre, String estatus, String formaLiberacion, Pageable pageable) {
+        if (nombre != null && !NOMBRE_BUSQUEDA.matcher(nombre).matches()) {
+            throw new DatosInvalidosException("ALUM-030",
+                    "El nombre solo admite letras; para buscar por número usa el filtro de número de control.");
+        }
         String estatusFiltro = estatus == null || estatus.isBlank() ? "Activo" : estatus.trim();
         Pageable pagina = pageable.getPageSize() > TAMANO_MAXIMO_PAGINA
                 ? PageRequest.of(pageable.getPageNumber(), TAMANO_MAXIMO_PAGINA)

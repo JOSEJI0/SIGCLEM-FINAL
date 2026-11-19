@@ -57,6 +57,23 @@ export function mensajeError(error, porDefecto = 'No fue posible completar la op
   return datos?.detail || datos?.title || porDefecto;
 }
 
+/**
+ * Como {@link mensajeError}, para peticiones de archivos ({@code responseType: 'blob'}): ahí el error RFC 7807 llega
+ * como Blob y hay que leerlo para mostrar el motivo real (p. ej. «No se encontró el archivo del comprobante»).
+ */
+export async function mensajeErrorArchivo(error, porDefecto) {
+  const datos = error?.response?.data;
+  if (typeof Blob !== 'undefined' && datos instanceof Blob) {
+    try {
+      const json = JSON.parse(await datos.text());
+      return mensajeError({ response: { ...error.response, data: json } }, porDefecto);
+    } catch {
+      return porDefecto;
+    }
+  }
+  return mensajeError(error, porDefecto);
+}
+
 export function erroresDeCampo(error) {
   return error?.response?.data?.errores || {};
 }

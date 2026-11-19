@@ -1,21 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Check, CreditCard, Eye, Pencil, Plus, Power, Receipt, RefreshCw, Search, Tags, Trash2, X,
+  CreditCard, Eye, Pencil, Plus, Power, Receipt, Search, Tags, Trash2,
 } from 'lucide-react';
 import { buscarAlumnos } from '../../api/alumnos';
 import { mensajeError } from '../../api/cliente';
 import { obtenerPeriodos } from '../../api/catalogos';
 import { listarGrupos } from '../../api/grupos';
 import {
-  activarConcepto, capturarDatosComprobante, crearAutorizacion, crearConcepto, descargarComprobante,
-  desactivarConcepto, editarConcepto, eliminarConcepto, listarCargos, listarComprobantesPendientes,
-  listarConceptos, listarTodosLosCargos, rechazarComprobante, reverificarComprobante, validarComprobante,
+  activarConcepto, crearAutorizacion, crearConcepto, desactivarConcepto, editarConcepto, eliminarConcepto,
+  listarCargos, listarComprobantes, listarComprobantesPendientes, listarConceptos, listarTodosLosCargos,
 } from '../../api/pagos';
 import { Alerta, Boton, Campo, Cargando, Insignia, Tarjeta, claseEntrada } from '../../components/ui';
 import { ConfirmacionDoble, Modal } from '../../components/Modal';
 import VerificacionComprobante, { tieneAlertaVerificacion } from '../../components/VerificacionComprobante';
+import RevisionComprobante from '../../components/RevisionComprobante';
 import Paginador, { usePaginacion } from '../../components/Paginador';
-import { useVisorDocumento } from '../../components/VisorDocumento';
 import { useAuth } from '../../auth/AuthContext';
 import { esSoloConsulta } from '../../auth/roles';
 import { Indicador } from '../../components/Graficas';
@@ -26,12 +25,9 @@ function moneda(valor) {
 
 const fecha = (iso) => (iso ? new Date(iso.length === 10 ? `${iso}T00:00:00` : iso).toLocaleDateString('es-MX') : '—');
 
-const datosManualesVacios = () => ({ uuidCfdi: '', rfcEmisor: '', total: '', selloFinal: '' });
-
 export default function Pagos({ soloLectura = false }) {
   const { perfil } = useAuth();
   const esSoloLectura = soloLectura || esSoloConsulta(perfil?.rol);
-  const verDocumento = useVisorDocumento();
 
   const [edicionConcepto, setEdicionConcepto] = useState(null);
   const [borrarConcepto, setBorrarConcepto] = useState(null);
@@ -55,9 +51,12 @@ export default function Pagos({ soloLectura = false }) {
   const [filtroEstatusCargo, setFiltroEstatusCargo] = useState('');
   const [filtroTextoCargo, setFiltroTextoCargo] = useState('');
 
-  const [idGrupo, setIdGrupo] = useState({});
-  const [motivos, setMotivos] = useState({});
-  const [datosManuales, setDatosManuales] = useState({});
+  // Comprobante abierto en el panel de revisión (documento + verificación + validar/rechazar)
+  const [revision, setRevision] = useState(null);
+  // Estatus de la lista de comprobantes: los pendientes llegan con la carga inicial; validados y rechazados, al elegirlos
+  const [estatusLista, setEstatusLista] = useState('Pendiente');
+  const [comprobantesResueltos, setComprobantesResueltos] = useState([]);
+  const [cargandoLista, setCargandoLista] = useState(false);
   const [guardando, setGuardando] = useState('');
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
@@ -92,11 +91,24 @@ export default function Pagos({ soloLectura = false }) {
   const conceptosActivos = useMemo(() => conceptos.filter((item) => item.activo && item.idTarifa), [conceptos]);
   const [filtroPendientes, setFiltroPendientes] = useState('');
   const [soloAlertas, setSoloAlertas] = useState(false);
+  useEffect(() => {
+    if (estatusLista === 'Pendiente') return undefined;
+    let cancelado = false;
+    setCargandoLista(true);
+    listarComprobantes(estatusLista)
+      .then((lista) => { if (!cancelado) setComprobantesResueltos(lista); })
+      .catch((e) => { if (!cancelado) setError(mensajeError(e)); })
+      .finally(() => { if (!cancelado) setCargandoLista(false); });
+    return () => { cancelado = true; };
+  }, [estatusLista]);
+  const listaComprobantes = estatusLista === 'Pendiente' ? comprobantes : comprobantesResueltos;
   const pendientesFiltrados = useMemo(() => {
     const texto = filtroPendientes.trim().toLowerCase();
-    return comprobantes.filter((c) => (!soloAlertas || tieneAlertaVerificacion(c) || c.uuidCfdi == null)
+    // Los resueltos se muestran del más reciente al más antiguo; los pendientes, en orden de llegada.
+    const base = estatusLista === 'Pendiente' ? listaComprobantes : [...listaComprobantes].reverse();
+    return base.filter((c) => (estatusLista !== 'Pendiente' || !soloAlertas || tieneAlertaVerificacion(c) || c.uuidCfdi == null)
       && (!texto || `${c.alumno} ${c.numeroControl} ${c.concepto}`.toLowerCase().includes(texto)));
-  }, [comprobantes, filtroPendientes, soloAlertas]);
+  }, [listaComprobantes, estatusLista, filtroPendientes, soloAlertas]);
   // Al inicio del semestre puede haber cientos de comprobantes: se muestran de 10 en 10.
   const paginacionPendientes = usePaginacion(pendientesFiltrados, 10);
 
@@ -210,112 +222,37 @@ export default function Pagos({ soloLectura = false }) {
     }
   }
 
-  function actualizarDatosManuales(id, campo, valor) {
-    setDatosManuales((previos) => ({
-      ...previos,
-      [id]: { ...datosManualesVacios(), ...previos[id], [campo]: valor },
-    }));
-  }
-
-  async function capturarManual(comprobante) {
-    if (esSoloLectura) return;
-    const datos = { ...datosManualesVacios(), ...datosManuales[comprobante.id] };
-    if (!datos.uuidCfdi.trim() || !datos.rfcEmisor.trim() || !datos.total.trim()) {
-      setError(`Completa UUID, RFC e importe para el comprobante de ${comprobante.alumno}.`);
-      return;
-    }
-    setGuardando(`manual-${comprobante.id}`);
-    setError('');
-    setAviso('');
+  /** Recarga comprobantes, cargos y grupos sin ocultar la pantalla (el panel de revisión puede seguir abierto). */
+  async function refrescar() {
     try {
-      await capturarDatosComprobante(comprobante.id, {
-        uuidCfdi: datos.uuidCfdi.trim(),
-        rfcEmisor: datos.rfcEmisor.trim(),
-        total: Number(datos.total),
-        selloFinal: datos.selloFinal.trim() || null,
-      });
-      setAviso('Datos del comprobante capturados y consultados ante el SAT. Ahora puedes validar o rechazar la evidencia.');
-      await cargar();
+      const [pendientes, cargosGlobales] = await Promise.all([
+        listarComprobantesPendientes(),
+        listarTodosLosCargos().catch(() => null),
+      ]);
+      setComprobantes(pendientes);
+      if (cargosGlobales) setCargosEmitidos(cargosGlobales);
+      const periodosPendientes = [...new Set(pendientes.map((c) => c.idPeriodo))];
+      const gruposPorPeriodo = await Promise.all(periodosPendientes.map((periodoId) => listarGrupos(periodoId)));
+      setGrupos(gruposPorPeriodo.flat());
+      if (estatusLista !== 'Pendiente') setComprobantesResueltos(await listarComprobantes(estatusLista));
+      if (alumno) setCargos(await listarCargos(alumno.numeroControl));
     } catch (e) {
       setError(mensajeError(e));
-    } finally {
-      setGuardando('');
     }
   }
 
-  async function validar(comprobante) {
-    if (esSoloLectura) return;
-    const balance = Number(comprobante.saldoPendiente);
-    const esLiquidacion = Math.abs(Number(comprobante.total) - balance) < 0.005;
-    const grupoId = idGrupo[comprobante.id] || '';
-    if (comprobante.concepto === 'Curso de nivel' && esLiquidacion && !grupoId && !comprobante.grupoAsignado) {
-      setError(`Selecciona un grupo para la inscripción de ${comprobante.alumno}; este abono liquida el cargo.`);
-      return;
-    }
-    if (tieneAlertaVerificacion(comprobante) && !window.confirm(
-      `La verificación automática del comprobante de ${comprobante.alumno} tiene alertas `
-      + `(SAT: ${comprobante.estadoSat || 'sin consultar'}, descripción: ${comprobante.cotejoDescripcion || 'sin cotejo'}). `
-      + '¿Revisaste el documento y deseas validarlo de todos modos?',
-    )) return;
-    setGuardando(`comprobante-${comprobante.id}`);
-    setError('');
+  function revisar(comprobante) {
     setAviso('');
-    try {
-      await validarComprobante(comprobante.id, esLiquidacion ? grupoId : '');
-      setAviso(esLiquidacion
-        ? `Pago liquidado${comprobante.concepto === 'Curso de nivel' ? ' e inscripción aplicada' : ''}.`
-        : `Abono validado. Saldo restante: ${moneda(balance - Number(comprobante.total))}.`);
-      await cargar();
-    } catch (e) {
-      setError(mensajeError(e));
-    } finally {
-      setGuardando('');
-    }
+    // Desde los cargos del alumno no llega el grupo asignado: se toma de la lista de pendientes, que sí lo trae.
+    setRevision(comprobantes.find((c) => c.id === comprobante.id) || comprobante);
   }
 
-  async function rechazar(comprobante) {
-    if (esSoloLectura) return;
-    const motivo = motivos[comprobante.id]?.trim();
-    if (!motivo) {
-      setError(`Escribe el motivo de rechazo del comprobante de ${comprobante.alumno}.`);
-      return;
+  async function alCambiarRevision(mensaje) {
+    if (mensaje) {
+      setError('');
+      setAviso(mensaje);
     }
-    setGuardando(`comprobante-${comprobante.id}`);
-    setError('');
-    setAviso('');
-    try {
-      await rechazarComprobante(comprobante.id, motivo);
-      setAviso('Comprobante rechazado. El saldo no se modificó y el alumno podrá enviar una evidencia corregida.');
-      await cargar();
-    } catch (e) {
-      setError(mensajeError(e));
-    } finally {
-      setGuardando('');
-    }
-  }
-
-  async function reverificar(comprobante) {
-    if (esSoloLectura) return;
-    setGuardando(`verificar-${comprobante.id}`);
-    setError('');
-    setAviso('');
-    try {
-      const resultado = await reverificarComprobante(comprobante.id);
-      setAviso(`Verificación repetida para ${comprobante.alumno}: SAT ${resultado.estadoSat || 'sin consultar'}, descripción ${resultado.cotejoDescripcion || 'sin cotejo'}.`);
-      await cargar();
-    } catch (e) {
-      setError(mensajeError(e));
-    } finally {
-      setGuardando('');
-    }
-  }
-
-  function descargar(comprobante) {
-    verDocumento({
-      titulo: `Comprobante de ${comprobante.alumno} · ${comprobante.numeroControl}`,
-      nombre: `comprobante-${comprobante.numeroControl}-${comprobante.id}`,
-      cargar: () => descargarComprobante(comprobante.id),
-    });
+    await refrescar();
   }
 
   if (cargando) return <Cargando />;
@@ -456,6 +393,21 @@ export default function Pagos({ soloLectura = false }) {
                     <span>Saldo: <b>{moneda(cargo.saldoPendiente)}</b></span>
                     <Insignia estatus={cargo.estatusCargo || cargo.estatus}>{cargo.estatusCargo || cargo.estatus}</Insignia>
                   </div>
+                  {(cargo.comprobantes || []).length > 0 && (
+                    <ul className="grid w-full gap-1.5 border-t border-linea pt-2" aria-label={`Comprobantes del cargo ${cargo.id}`}>
+                      {cargo.comprobantes.map((c) => (
+                        <li key={c.id} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                          <span className="text-xs text-tenue">{c.fechaCarga ? new Date(c.fechaCarga).toLocaleDateString('es-MX') : '—'}</span>
+                          <span>{c.total == null ? 'Importe sin capturar' : moneda(c.total)}</span>
+                          <Insignia estatus={c.estatus} />
+                          <VerificacionComprobante comprobante={c} />
+                          <Boton variante="secundario" type="button" className="ml-auto !px-2 !py-1 text-xs" onClick={() => revisar(c)}>
+                            <Eye className="h-3.5 w-3.5" /> {c.estatus === 'Pendiente' && !esSoloLectura ? 'Revisar' : 'Ver'}
+                          </Boton>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               ))}
             </div>
@@ -525,127 +477,86 @@ export default function Pagos({ soloLectura = false }) {
         </div>
       </Tarjeta>
 
-      {/* Comprobantes pendientes */}
-      <section className="grid gap-3" aria-label="Comprobantes pendientes de validación">
-        <h2 className="text-base font-semibold">Comprobantes pendientes ({comprobantes.length})</h2>
-        {comprobantes.length > 0 && (
+      {/* Comprobantes: pendientes de revisión, validados o rechazados */}
+      <section className="grid gap-3" aria-label="Comprobantes de pago">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-base font-semibold">
+            {estatusLista === 'Pendiente' ? `Comprobantes pendientes (${comprobantes.length})` : `Comprobantes ${estatusLista.toLowerCase()}s`}
+          </h2>
+          <select className={`${claseEntrada} max-w-[220px]`} aria-label="Estatus de los comprobantes" value={estatusLista}
+            onChange={(e) => setEstatusLista(e.target.value)}>
+            <option value="Pendiente">Pendientes de revisión</option>
+            <option value="Validado">Validados</option>
+            <option value="Rechazado">Rechazados</option>
+          </select>
+        </div>
+        {listaComprobantes.length > 0 && (
           <div className="flex flex-wrap items-center gap-3">
             <input className={`${claseEntrada} max-w-sm`} aria-label="Buscar comprobante por alumno, número de control o concepto"
               placeholder="Buscar por alumno, número de control o concepto" value={filtroPendientes}
               onChange={(e) => setFiltroPendientes(e.target.value)} />
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={soloAlertas} onChange={(e) => setSoloAlertas(e.target.checked)} />
-              Solo con alertas o sin datos del CFDI
-            </label>
+            {estatusLista === 'Pendiente' && (
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={soloAlertas} onChange={(e) => setSoloAlertas(e.target.checked)} />
+                Solo con alertas o sin datos del CFDI
+              </label>
+            )}
           </div>
         )}
-        {comprobantes.length === 0 ? <Tarjeta><p className="text-sm text-tenue">No hay comprobantes pendientes de revisión.</p></Tarjeta>
-          : pendientesFiltrados.length === 0 ? <Tarjeta><p className="text-sm text-tenue">Ningún comprobante coincide con el filtro.</p></Tarjeta>
+        {cargandoLista ? <Cargando />
+          : listaComprobantes.length === 0 ? (
+            <Tarjeta><p className="text-sm text-tenue">
+              {estatusLista === 'Pendiente' ? 'No hay comprobantes pendientes de revisión.' : `No hay comprobantes ${estatusLista.toLowerCase()}s.`}
+            </p></Tarjeta>
+          ) : pendientesFiltrados.length === 0 ? <Tarjeta><p className="text-sm text-tenue">Ningún comprobante coincide con el filtro.</p></Tarjeta>
           : paginacionPendientes.visibles.map((comprobante) => {
-            const balance = Number(comprobante.saldoPendiente);
-            const importe = Number(comprobante.total);
             const requiereCaptura = comprobante.uuidCfdi == null || comprobante.rfcEmisor == null || comprobante.total == null;
-            const esLiquidacion = !requiereCaptura && Math.abs(importe - balance) < 0.005;
-            const gruposElegibles = grupos.filter((grupo) =>
-              grupo.idPeriodo === comprobante.idPeriodo
-              && grupo.idNivel === comprobante.idNivel
-              && grupo.estatusActa !== 'Cerrada'
-              && grupo.cupo != null
-              && grupo.alumnosInscritos < grupo.cupo);
-            const datos = { ...datosManualesVacios(), ...datosManuales[comprobante.id] };
+            const pendiente = comprobante.estatus === 'Pendiente';
             return (
               <Tarjeta key={comprobante.id} titulo={`${comprobante.alumno} · ${comprobante.numeroControl}`} extra={<Insignia estatus={comprobante.estatus} />}>
                 <div className="grid gap-2 text-sm sm:grid-cols-2">
                   <p><b>Concepto:</b> {comprobante.concepto}{comprobante.nivel ? ` · ${comprobante.nivel}` : ''}</p>
                   <p><b>Periodo:</b> {comprobante.periodo}</p>
                   <p><b>UUID:</b> <span className="break-all">{comprobante.uuidCfdi || 'Pendiente de captura manual'}</span></p>
-                  <p><b>RFC:</b> {comprobante.rfcEmisor || 'Pendiente de captura manual'}</p>
-                  <p><b>Abono:</b> {comprobante.total == null ? 'Pendiente de captura manual' : moneda(comprobante.total)}</p>
-                  <p><b>Saldo previo:</b> {moneda(comprobante.saldoPendiente)}</p>
-                  {comprobante.contenidoQr && <p className="sm:col-span-2 break-all"><b>Contenido QR:</b> {comprobante.contenidoQr}</p>}
+                  <p><b>Abono:</b> {comprobante.total == null ? 'Pendiente de captura manual' : moneda(comprobante.total)}
+                    {pendiente && <> · <b>Saldo previo:</b> {moneda(comprobante.saldoPendiente)}</>}</p>
+                  {comprobante.grupoAsignado && <p className="sm:col-span-2"><b>Grupo asignado:</b> {comprobante.grupoAsignado}</p>}
+                  {comprobante.motivoRechazo && <p className="sm:col-span-2 text-error"><b>Motivo de rechazo:</b> {comprobante.motivoRechazo}</p>}
                 </div>
                 <div className="mt-3 rounded-lg border border-linea p-3">
                   <p className="mb-2 text-sm font-semibold">Verificación automática</p>
-                  <VerificacionComprobante comprobante={comprobante} detallado />
+                  {comprobante.estadoSat || comprobante.cotejoDescripcion
+                    ? <VerificacionComprobante comprobante={comprobante} />
+                    : <p className="text-xs text-tenue">Sin resultados de verificación automática.</p>}
                 </div>
+                {pendiente && (comprobante.estadoSat === 'Cancelado' ? (
+                  <Alerta tipo="error" className="mt-3">El SAT reporta este CFDI como cancelado: debe ser rechazado.</Alerta>
+                ) : tieneAlertaVerificacion(comprobante) ? (
+                  <Alerta tipo="error" className="mt-3">La verificación automática encontró diferencias. Revisa el documento antes de aplicar el abono.</Alerta>
+                ) : requiereCaptura ? (
+                  <Alerta tipo="aviso" className="mt-3">No se pudo leer el QR: captura los datos impresos en el documento al revisarlo.</Alerta>
+                ) : null)}
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Boton variante="secundario" type="button" onClick={() => descargar(comprobante)}>
-                    <Eye className="h-4 w-4" /> Ver comprobante {(comprobante.tipoArchivo || 'jpg').toUpperCase()}
-                  </Boton>
-                  {!esSoloLectura && (
-                    <Boton variante="secundario" type="button" disabled={guardando !== ''} onClick={() => reverificar(comprobante)}>
-                      <RefreshCw className="h-4 w-4" /> {guardando === `verificar-${comprobante.id}` ? 'Verificando…' : 'Reverificar (QR, SAT y descripción)'}
+                  {pendiente && !esSoloLectura ? (
+                    <Boton type="button" onClick={() => revisar(comprobante)}>
+                      <Eye className="h-4 w-4" /> Revisar documento y validar
+                    </Boton>
+                  ) : (
+                    <Boton variante="secundario" type="button" onClick={() => revisar(comprobante)}>
+                      <Eye className="h-4 w-4" /> Ver comprobante {(comprobante.tipoArchivo || '').toUpperCase()}
                     </Boton>
                   )}
                 </div>
-                {comprobante.estadoSat === 'Cancelado' ? (
-                  <Alerta tipo="error" className="mt-3">El SAT reporta este CFDI como cancelado: debe ser rechazado.</Alerta>
-                ) : tieneAlertaVerificacion(comprobante) ? (
-                  <Alerta tipo="error" className="mt-3">
-                    La verificación automática encontró diferencias. Revisar el documento antes de aplicar el abono.
-                  </Alerta>
-                ) : (
-                  <Alerta tipo="aviso" className="mt-3">
-                    {requiereCaptura
-                      ? 'No se pudo leer el QR del comprobante; requiere captura de los datos impresos en el documento.'
-                      : 'Verifica que el documento corresponda al alumno y al concepto.'}
-                  </Alerta>
-                )}
-                {!esSoloLectura && requiereCaptura && (
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <Campo etiqueta="UUID / Folio fiscal" id={`uuidManual-${comprobante.id}`}>
-                      <input className={claseEntrada} id={`uuidManual-${comprobante.id}`} maxLength="36" value={datos.uuidCfdi} onChange={(e) => actualizarDatosManuales(comprobante.id, 'uuidCfdi', e.target.value)} />
-                    </Campo>
-                    <Campo etiqueta="RFC emisor" id={`rfcManual-${comprobante.id}`}>
-                      <input className={claseEntrada} id={`rfcManual-${comprobante.id}`} maxLength="13" value={datos.rfcEmisor} onChange={(e) => actualizarDatosManuales(comprobante.id, 'rfcEmisor', e.target.value.toUpperCase())} />
-                    </Campo>
-                    <Campo etiqueta="Importe del abono (MXN)" id={`totalManual-${comprobante.id}`}>
-                      <input className={claseEntrada} id={`totalManual-${comprobante.id}`} type="number" min="0.01" max={balance} step="0.01" value={datos.total} onChange={(e) => actualizarDatosManuales(comprobante.id, 'total', e.target.value)} />
-                    </Campo>
-                    <Campo etiqueta="Últimos 8 caracteres del sello digital (opcional)" id={`selloManual-${comprobante.id}`} ayuda="Final del «Sello Digital del CFDI», p. ej. P/Dk7w==. Con él se consulta el CFDI ante el SAT.">
-                      <input className={claseEntrada} id={`selloManual-${comprobante.id}`} maxLength="8" value={datos.selloFinal} onChange={(e) => actualizarDatosManuales(comprobante.id, 'selloFinal', e.target.value.trim())} />
-                    </Campo>
-                    <Boton className="sm:col-span-2 sm:justify-self-start" type="button" disabled={guardando !== ''} onClick={() => capturarManual(comprobante)}>
-                      {guardando === `manual-${comprobante.id}` ? 'Guardando…' : 'Guardar captura manual'}
-                    </Boton>
-                  </div>
-                )}
-                {comprobante.grupoAsignado && (
-                  <Alerta tipo="info" className="mt-3">El alumno ya está asignado al grupo <b>{comprobante.grupoAsignado}</b>; al liquidar, el pago se liga a esa inscripción.</Alerta>
-                )}
-                {!esSoloLectura && !requiereCaptura && !comprobante.grupoAsignado && comprobante.concepto === 'Curso de nivel' && esLiquidacion && (
-                  <div className="mt-3">
-                    <Campo etiqueta="Grupo para inscripción (solo al liquidar)" id={`grupo-${comprobante.id}`}>
-                      <select className={claseEntrada} id={`grupo-${comprobante.id}`} required value={idGrupo[comprobante.id] || ''} onChange={(e) => setIdGrupo((previos) => ({ ...previos, [comprobante.id]: e.target.value }))}>
-                        <option value="">Selecciona un grupo compatible</option>
-                        {gruposElegibles.map((grupo) => (
-                          <option key={grupo.id} value={grupo.id}>{grupo.clave} · {grupo.intensivo ? 'Intensivo · 10 niveles' : [grupo.nivel, grupo.nivelSecundario].filter(Boolean).join(' + ')} · {grupo.modalidad} · {grupo.alumnosInscritos}/{grupo.cupo}</option>
-                        ))}
-                      </select>
-                    </Campo>
-                    {gruposElegibles.length === 0 && <p className="mt-1 text-xs text-tenue">No hay grupos abiertos con cupo para el nivel y periodo autorizados.</p>}
-                  </div>
-                )}
-                {!esSoloLectura && (
-                  <>
-                    <Campo etiqueta="Motivo de rechazo (solo si rechazas)" id={`motivo-${comprobante.id}`}>
-                      <textarea className={claseEntrada} id={`motivo-${comprobante.id}`} rows="2" maxLength="200" value={motivos[comprobante.id] || ''} onChange={(e) => setMotivos((previos) => ({ ...previos, [comprobante.id]: e.target.value }))} />
-                    </Campo>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Boton variante="exito" type="button" disabled={guardando !== '' || requiereCaptura || comprobante.estadoSat === 'Cancelado' || (comprobante.concepto === 'Curso de nivel' && esLiquidacion && !idGrupo[comprobante.id] && !comprobante.grupoAsignado)} onClick={() => validar(comprobante)}>
-                        <Check className="h-4 w-4" /> {guardando === `comprobante-${comprobante.id}` ? 'Procesando…' : esLiquidacion ? 'Validar, liquidar e inscribir' : 'Validar abono'}
-                      </Boton>
-                      <Boton variante="peligro" type="button" disabled={guardando !== '' || !motivos[comprobante.id]?.trim()} onClick={() => rechazar(comprobante)}>
-                        <X className="h-4 w-4" /> Rechazar
-                      </Boton>
-                    </div>
-                  </>
-                )}
               </Tarjeta>
             );
           })}
         <Paginador paginacion={paginacionPendientes} />
       </section>
+
+      {revision && (
+        <RevisionComprobante key={revision.id} comprobante={revision} soloLectura={esSoloLectura} grupos={grupos}
+          onCerrar={() => setRevision(null)} onCambio={alCambiarRevision} />
+      )}
 
       {!esSoloLectura && edicionConcepto && (
         <Modal titulo="Editar concepto de pago" onCerrar={() => setEdicionConcepto(null)} ancho="max-w-md">

@@ -27,6 +27,9 @@ export const cargarComprobante = (id, datos) =>
 export const reverificarComprobante = (id) =>
   api.post(`/pagos/comprobantes/${encodeURIComponent(id)}/reverificar`, null, { timeout: 90000 }).then((r) => r.data);
 export const listarComprobantesPendientes = () => api.get('/pagos/comprobantes/pendientes').then((r) => r.data);
+/** Comprobantes por estatus (Pendiente, Validado o Rechazado), para coordinación y la jefa del DGTV. */
+export const listarComprobantes = (estatus) =>
+  api.get('/pagos/comprobantes', { params: { estatus } }).then((r) => r.data);
 export const capturarDatosComprobante = (id, datos) =>
   api.post(`/pagos/comprobantes/${encodeURIComponent(id)}/captura-manual`, datos).then((r) => r.data);
 export const validarComprobante = (id, idGrupo) =>

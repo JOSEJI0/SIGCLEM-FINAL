@@ -12,6 +12,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.springframework.core.io.Resource;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +20,9 @@ import org.springframework.web.multipart.MultipartFile;
 
 import lombok.RequiredArgsConstructor;
 import mx.edu.itch.sigclem.alumnos.domain.AvanceNivel;
+import mx.edu.itch.sigclem.auditoria.domain.AccionAuditoria;
+import mx.edu.itch.sigclem.auditoria.domain.RegistroAuditoria;
+import mx.edu.itch.sigclem.auditoria.service.AuditoriaService;
 import mx.edu.itch.sigclem.alumnos.domain.EstatusAvance;
 import mx.edu.itch.sigclem.alumnos.repository.AlumnoRepository;
 import mx.edu.itch.sigclem.alumnos.repository.AvanceNivelRepository;
@@ -79,6 +83,11 @@ public class PagoService {
     private final ArchivoComprobanteService archivoService;
     private final NotificacionRepository notificacionRepository;
     private final VerificacionComprobanteService verificacion;
+    private final AuditoriaService auditoria;
+
+    /** Archivo del comprobante listo para enviarse: contenido, tipo (PDF, PNG o JPG) y extensión para descargarlo. */
+    public record ArchivoComprobante(Resource recurso, MediaType tipo, String extension) {
+    }
 
     @Transactional(readOnly = true)
     public List<TarifaDTO> listarTarifas(boolean incluirInactivas) {
@@ -473,7 +482,10 @@ public class PagoService {
         comprobante.setOrigenDatos("Coordinación");
         comprobante.setSelloFinal(vacioANull(request.selloFinal()));
         verificacion.consultarSat(comprobante);
-        return ComprobanteDTO.desde(comprobanteRepository.save(comprobante));
+        ComprobanteDTO guardado = ComprobanteDTO.desde(comprobanteRepository.save(comprobante));
+        auditoria.registrar(AccionAuditoria.COMPROBANTE_CAPTURA_MANUAL, RegistroAuditoria.OK,
+                describir(comprobante) + " UUID " + uuid + ", total " + total + " MXN.");
+        return guardado;
     }
 
     /** Repite la lectura del archivo, la consulta al SAT y el cotejo (p. ej. si el SAT no respondió al subirlo). */
@@ -566,7 +578,11 @@ public class PagoService {
                         ? "Tu cargo de " + autorizacion.getConcepto() + " quedó liquidado."
                         : "Tu abono fue aplicado. Saldo pendiente: "
                                 + autorizacion.getSaldoPendiente() + " MXN.");
-        return ComprobanteDTO.desde(comprobanteRepository.save(comprobante));
+        ComprobanteDTO validado = ComprobanteDTO.desde(comprobanteRepository.save(comprobante));
+        auditoria.registrar(AccionAuditoria.COMPROBANTE_VALIDADO, RegistroAuditoria.OK,
+                describir(comprobante) + " Abono " + comprobante.getTotal() + " MXN; saldo restante "
+                        + autorizacion.getSaldoPendiente() + " MXN.");
+        return validado;
     }
 
     @Transactional
@@ -585,17 +601,42 @@ public class PagoService {
                 "Comprobante rechazado",
                 "El comprobante de " + comprobante.getAutorizacion().getConcepto()
                         + " fue rechazado. Motivo: " + comprobante.getMotivoRechazo());
-        return ComprobanteDTO.desde(comprobanteRepository.save(comprobante));
+        ComprobanteDTO rechazado = ComprobanteDTO.desde(comprobanteRepository.save(comprobante));
+        auditoria.registrar(AccionAuditoria.COMPROBANTE_RECHAZADO, RegistroAuditoria.OK,
+                describir(comprobante) + " Motivo: " + comprobante.getMotivoRechazo());
+        return rechazado;
+    }
+
+    /**
+     * Texto de la bitácora: qué comprobante, de quién y qué había dicho la verificación automática, para que quede
+     * constancia de que coordinación decidió aunque el SAT o el cotejo no hubieran concluido o tuvieran alertas.
+     */
+    private static String describir(ComprobantePago comprobante) {
+        AutorizacionPago cargo = comprobante.getAutorizacion();
+        return "Comprobante #" + comprobante.getId() + " del alumno " + cargo.getAlumno().getNumeroControl()
+                + " (cargo #" + cargo.getId() + ", " + cargo.getConcepto() + "). Verificación automática: SAT "
+                + valorOSin(comprobante.getEstadoSat()) + ", descripción " + valorOSin(comprobante.getCotejoDescripcion())
+                + ".";
+    }
+
+    private static String valorOSin(String valor) {
+        return valor == null || valor.isBlank() ? "sin dato" : valor;
     }
 
     @Transactional(readOnly = true)
-    public Resource obtenerArchivo(Integer id, Authentication auth, boolean coordinacion) {
+    public ArchivoComprobante obtenerArchivo(Integer id, Authentication auth, boolean personalDePagos) {
         ComprobantePago comprobante = comprobanteRepository.findConRelacionesById(id)
                 .orElseThrow(() -> new RecursoNoEncontradoException("PAG-018", "No existe el comprobante solicitado."));
-        if (!coordinacion && !comprobante.getAutorizacion().getAlumno().getNumeroControl().equals(auth.getName())) {
-            throw new ReglaNegocioException("PAG-025", "Solo puedes consultar tus propios comprobantes.");
+        // Al alumno se le responde «no existe» también con comprobantes ajenos, para no revelar qué folios existen.
+        if (!personalDePagos
+                && !comprobante.getAutorizacion().getAlumno().getNumeroControl().equalsIgnoreCase(auth.getName())) {
+            throw new RecursoNoEncontradoException("PAG-018", "No existe el comprobante solicitado.");
         }
-        return archivoService.cargar(comprobante.getArchivo());
+        String nombre = comprobante.getArchivo();
+        Resource recurso = archivoService.cargar(nombre);
+        MediaType tipo = archivoService.tipoContenido(nombre);
+        String extension = MediaType.APPLICATION_PDF.equals(tipo) ? "pdf" : MediaType.IMAGE_PNG.equals(tipo) ? "png" : "jpg";
+        return new ArchivoComprobante(recurso, tipo, extension);
     }
 
     private void inscribirEnGrupo(AutorizacionPago autorizacion, ComprobantePago comprobante, Integer idGrupo) {

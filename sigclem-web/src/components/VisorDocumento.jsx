@@ -1,11 +1,64 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Download, ExternalLink, FileText, Maximize2, X, ZoomIn, ZoomOut } from 'lucide-react';
-import { mensajeError } from '../api/cliente';
+import { mensajeErrorArchivo } from '../api/cliente';
 import { Alerta, Boton, Cargando } from './ui';
 
 const VisorContext = createContext(null);
 
 const EXTENSIONES = { 'application/pdf': 'pdf', 'image/png': 'png', 'image/jpeg': 'jpg' };
+
+/** Convierte la respuesta de {@code cargar()} en { url, tipo } (la URL se libera con {@code URL.revokeObjectURL}). */
+async function obtenerDocumento(cargar) {
+  const respuesta = await cargar();
+  const blob = respuesta instanceof Blob ? respuesta : respuesta?.data;
+  return { url: URL.createObjectURL(blob), tipo: blob.type || 'application/pdf' };
+}
+
+/**
+ * Carga un documento (Blob) para mostrarlo con {@link AreaDocumento}. Devuelve { url, tipo, cargando, error }.
+ * {@code cargar} se vuelve a llamar solo cuando cambia {@code clave}.
+ */
+export function useDocumento(clave, cargar) {
+  const [estado, setEstado] = useState({ cargando: true });
+  const cargarRef = useRef(cargar);
+  cargarRef.current = cargar;
+
+  useEffect(() => {
+    let url = null;
+    let cancelado = false;
+    setEstado({ cargando: true });
+    obtenerDocumento(() => cargarRef.current())
+      .then((documento) => {
+        url = documento.url;
+        if (cancelado) URL.revokeObjectURL(url);
+        else setEstado({ ...documento, cargando: false });
+      })
+      .catch(async (e) => {
+        const error = await mensajeErrorArchivo(e, 'No se pudo cargar el documento.');
+        if (!cancelado) setEstado({ cargando: false, error });
+      });
+    return () => {
+      cancelado = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [clave]);
+
+  return estado;
+}
+
+/** Nombre de archivo para descargar el documento, con la extensión que corresponde a su tipo real. */
+export function nombreArchivo(nombre, tipo) {
+  return `${(nombre || 'documento').replace(/\.(pdf|png|jpe?g)$/i, '')}.${EXTENSIONES[tipo] || 'pdf'}`;
+}
+
+export function descargarUrl(url, archivo) {
+  const enlace = document.createElement('a');
+  enlace.href = url;
+  enlace.download = archivo;
+  document.body.appendChild(enlace);
+  enlace.click();
+  enlace.remove();
+}
 
 /**
  * Visor de documentos del sistema (actas, constancias, comprobantes): muestra el archivo dentro de una ventana y,
@@ -34,13 +87,11 @@ export function VisorDocumentoProvider({ children }) {
     liberar();
     setDocumento({ titulo, nombre, cargando: true });
     try {
-      const respuesta = await cargar();
-      const blob = respuesta instanceof Blob ? respuesta : respuesta?.data;
-      const url = URL.createObjectURL(blob);
+      const { url, tipo } = await obtenerDocumento(cargar);
       urlActual.current = url;
-      setDocumento({ titulo, nombre, url, tipo: blob.type || 'application/pdf', cargando: false });
+      setDocumento({ titulo, nombre, url, tipo, cargando: false });
     } catch (e) {
-      setDocumento({ titulo, nombre, cargando: false, error: mensajeError(e, 'No se pudo cargar el documento.') });
+      setDocumento({ titulo, nombre, cargando: false, error: await mensajeErrorArchivo(e, 'No se pudo cargar el documento.') });
     }
   }, [liberar]);
 
@@ -79,7 +130,7 @@ function PaginasPdf({ url, zoom, onPaginas }) {
       tarea = pdfjs.getDocument(url);
       const pdf = await tarea.promise;
       if (cancelado) return;
-      onPaginas(pdf.numPages);
+      onPaginas?.(pdf.numPages);
       const destino = contenedor.current;
       destino.replaceChildren();
       const densidad = window.devicePixelRatio || 1;
@@ -119,14 +170,51 @@ function PaginasPdf({ url, zoom, onPaginas }) {
   );
 }
 
-const ZOOM = [0.5, 0.75, 1, 1.25, 1.5, 2];
+const ZOOM = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
+
+/** Botones de zoom (alejar, porcentaje, acercar, ajustar) para {@link AreaDocumento}. */
+export function ControlesZoom({ zoom, onZoom }) {
+  const indice = ZOOM.indexOf(zoom);
+  return (
+    <div className="flex items-center gap-1" aria-label="Zoom">
+      <button type="button" className="rounded-md p-1.5 text-tenue hover:bg-black/5 disabled:opacity-40"
+        disabled={indice <= 0} onClick={() => onZoom(ZOOM[indice - 1])} aria-label="Alejar"><ZoomOut className="h-4 w-4" /></button>
+      <span className="w-11 text-center text-xs text-tenue">{Math.round(zoom * 100)}%</span>
+      <button type="button" className="rounded-md p-1.5 text-tenue hover:bg-black/5 disabled:opacity-40"
+        disabled={indice >= ZOOM.length - 1} onClick={() => onZoom(ZOOM[indice + 1])} aria-label="Acercar"><ZoomIn className="h-4 w-4" /></button>
+      <button type="button" className="rounded-md p-1.5 text-tenue hover:bg-black/5" onClick={() => onZoom(1)}
+        aria-label="Ajustar al ancho" title="Ajustar al ancho"><Maximize2 className="h-4 w-4" /></button>
+    </div>
+  );
+}
+
+/** Área gris donde se muestra el documento cargado: páginas del PDF o la imagen (JPG, PNG), con zoom. */
+export function AreaDocumento({ documento, titulo, zoom = 1, onPaginas, textoCarga = 'Cargando documento…' }) {
+  const { url, tipo, cargando, error } = documento;
+  return (
+    <div className="h-full min-h-0 bg-[#525659]">
+      {cargando ? (
+        <div className="flex h-full items-center justify-center bg-white"><Cargando texto={textoCarga} /></div>
+      ) : error ? (
+        <div className="bg-white p-4"><Alerta tipo="error">{error}</Alerta></div>
+      ) : tipo?.startsWith('image/') ? (
+        <div className={`flex h-full overflow-auto p-4 ${zoom === 1 ? 'items-center justify-center' : 'items-start'}`}>
+          <img src={url} alt={titulo}
+            className={`rounded bg-white shadow ${zoom === 1 ? 'max-h-full max-w-full object-contain' : 'max-w-none'}`}
+            style={zoom === 1 ? undefined : { width: `${zoom * 100}%` }} />
+        </div>
+      ) : (
+        <PaginasPdf url={url} zoom={zoom} onPaginas={onPaginas} />
+      )}
+    </div>
+  );
+}
 
 function Visor({ documento, onCerrar }) {
-  const { titulo, nombre, url, tipo, cargando, error } = documento;
+  const { titulo, nombre, url, tipo } = documento;
   const [zoom, setZoom] = useState(1);
   const [paginas, setPaginas] = useState(0);
-  const indiceZoom = ZOOM.indexOf(zoom);
-  const archivo = `${(nombre || 'documento').replace(/\.(pdf|png|jpe?g)$/i, '')}.${EXTENSIONES[tipo] || 'pdf'}`;
+  const archivo = nombreArchivo(nombre, tipo);
   const esImagen = tipo?.startsWith('image/');
 
   useEffect(() => {
@@ -140,15 +228,6 @@ function Visor({ documento, onCerrar }) {
     };
   }, [onCerrar]);
 
-  function descargar() {
-    const enlace = document.createElement('a');
-    enlace.href = url;
-    enlace.download = archivo;
-    document.body.appendChild(enlace);
-    enlace.click();
-    enlace.remove();
-  }
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-2 sm:p-4" onClick={onCerrar}>
       <div role="dialog" aria-modal="true" aria-label={titulo}
@@ -160,18 +239,8 @@ function Visor({ documento, onCerrar }) {
             <span className="truncate">{titulo}</span>
           </h3>
           <div className="flex items-center gap-2">
-            {url && !esImagen && (
-              <div className="mr-1 hidden items-center gap-1 sm:flex" aria-label="Zoom">
-                <button type="button" className="rounded-md p-1.5 text-tenue hover:bg-black/5 disabled:opacity-40"
-                  disabled={indiceZoom <= 0} onClick={() => setZoom(ZOOM[indiceZoom - 1])} aria-label="Alejar"><ZoomOut className="h-4 w-4" /></button>
-                <span className="w-11 text-center text-xs text-tenue">{Math.round(zoom * 100)}%</span>
-                <button type="button" className="rounded-md p-1.5 text-tenue hover:bg-black/5 disabled:opacity-40"
-                  disabled={indiceZoom >= ZOOM.length - 1} onClick={() => setZoom(ZOOM[indiceZoom + 1])} aria-label="Acercar"><ZoomIn className="h-4 w-4" /></button>
-                <button type="button" className="rounded-md p-1.5 text-tenue hover:bg-black/5" onClick={() => setZoom(1)}
-                  aria-label="Ajustar al ancho" title="Ajustar al ancho"><Maximize2 className="h-4 w-4" /></button>
-              </div>
-            )}
-            <Boton type="button" disabled={!url} onClick={descargar}>
+            {url && <div className="mr-1 hidden sm:block"><ControlesZoom zoom={zoom} onZoom={setZoom} /></div>}
+            <Boton type="button" disabled={!url} onClick={() => descargarUrl(url, archivo)}>
               <Download className="h-4 w-4" /> Descargar
             </Boton>
             <Boton variante="secundario" type="button" disabled={!url} onClick={() => window.open(url, '_blank', 'noopener')}
@@ -183,18 +252,8 @@ function Visor({ documento, onCerrar }) {
             </button>
           </div>
         </div>
-        <div className="min-h-0 flex-1 bg-[#525659]">
-          {cargando ? (
-            <div className="flex h-full items-center justify-center bg-white"><Cargando texto="Generando documento…" /></div>
-          ) : error ? (
-            <div className="bg-white p-4"><Alerta tipo="error">{error}</Alerta></div>
-          ) : esImagen ? (
-            <div className="flex h-full items-center justify-center overflow-auto p-4">
-              <img src={url} alt={titulo} className="max-h-full max-w-full rounded bg-white object-contain shadow" />
-            </div>
-          ) : (
-            <PaginasPdf url={url} zoom={zoom} onPaginas={setPaginas} />
-          )}
+        <div className="min-h-0 flex-1">
+          <AreaDocumento documento={documento} titulo={titulo} zoom={zoom} onPaginas={setPaginas} textoCarga="Generando documento…" />
         </div>
         <p className="border-t border-linea px-4 py-2 text-xs text-tenue">
           {archivo}{paginas > 0 && !esImagen ? ` · ${paginas} ${paginas === 1 ? 'página' : 'páginas'}` : ''}

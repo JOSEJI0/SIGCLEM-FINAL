@@ -13,7 +13,10 @@ public enum AccionAuditoria {
     ALUMNOS_IMPORTADOS("Alumnos importados desde Excel"),
     ALUMNO_BAJA("Alumno dado de baja"),
     ALUMNO_REACTIVADO("Alumno reactivado"),
-    IDIOMA_LIBERADO("Lengua extranjera liberada");
+    IDIOMA_LIBERADO("Lengua extranjera liberada"),
+    COMPROBANTE_CAPTURA_MANUAL("Datos del comprobante de pago capturados por coordinación"),
+    COMPROBANTE_VALIDADO("Comprobante de pago validado"),
+    COMPROBANTE_RECHAZADO("Comprobante de pago rechazado");
 
     private final String descripcion;
 

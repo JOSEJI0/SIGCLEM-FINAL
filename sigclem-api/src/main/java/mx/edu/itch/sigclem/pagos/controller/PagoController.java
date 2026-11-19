@@ -140,10 +140,7 @@ public class PagoController {
     @Operation(summary = "Cargos de un alumno", description = "Rol: [Alumno][Coordinador][Jefa DGTV]")
     public List<AutorizacionDTO> cargos(
             @PathVariable String numeroControl, Authentication authentication) {
-        boolean personalAutorizado = authentication.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_COORDINADOR")
-                        || a.getAuthority().equals("ROLE_JEFA_DGTV"));
-        return pagoService.listarCargos(numeroControl, authentication, personalAutorizado);
+        return pagoService.listarCargos(numeroControl, authentication, esPersonalDePagos(authentication));
     }
 
     @PostMapping({ "/autorizaciones", "/autorizaciones-pago" })
@@ -234,21 +231,30 @@ public class PagoController {
 
     @GetMapping("/comprobantes/{id}/archivo")
     @PreAuthorize("hasAnyRole('ALUMNO','COORDINADOR','JEFA_DGTV')")
-    @Operation(summary = "Descargar archivo del comprobante", description = "Rol: [Alumno][Coordinador][Jefa DGTV]")
+    @Operation(summary = "Ver o descargar el archivo del comprobante", description = "Rol: [Alumno][Coordinador][Jefa DGTV]. "
+            + "El alumno solo obtiene sus propios comprobantes; coordinación y la jefa del DGTV, cualquiera.")
     public ResponseEntity<Resource> archivo(
             @PathVariable Integer id, Authentication authentication) {
-        boolean coordinacion = authentication.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_COORDINADOR")
-                        || a.getAuthority().equals("ROLE_JEFA_DGTV"));
-        Resource archivo = pagoService.obtenerArchivo(id, authentication, coordinacion);
-        String nombre = archivo.getFilename() == null ? "" : archivo.getFilename();
-        String extension = nombre.endsWith(".pdf") ? "pdf" : nombre.endsWith(".png") ? "png" : "jpg";
-        MediaType tipo = extension.equals("pdf") ? MediaType.APPLICATION_PDF
-                : extension.equals("png") ? MediaType.IMAGE_PNG : MediaType.IMAGE_JPEG;
+        PagoService.ArchivoComprobante archivo =
+                pagoService.obtenerArchivo(id, authentication, esPersonalDePagos(authentication));
         return ResponseEntity.ok()
-                .contentType(tipo)
+                .contentType(archivo.tipo())
                 .header(HttpHeaders.CONTENT_DISPOSITION,
-                        "inline; filename=\"comprobante-" + id + "." + extension + "\"")
-                .body(archivo);
+                        "inline; filename=\"comprobante-" + id + "." + archivo.extension() + "\"")
+                // Documento con datos personales: el navegador no debe guardarlo en caché ni reinterpretar su tipo.
+                .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
+                .header("X-Content-Type-Options", "nosniff")
+                .body(archivo.recurso());
+    }
+
+    /**
+     * Coordinación (y el administrador, que la hereda), además de la jefa del DGTV en solo consulta. La jerarquía de
+     * roles solo aplica a {@code @PreAuthorize}; aquí se revisan las autoridades del token, por eso ADMIN se nombra.
+     */
+    static boolean esPersonalDePagos(Authentication authentication) {
+        return authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_COORDINADOR")
+                        || a.getAuthority().equals("ROLE_ADMIN")
+                        || a.getAuthority().equals("ROLE_JEFA_DGTV"));
     }
 }

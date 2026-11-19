@@ -155,7 +155,7 @@ export default function PagosAlumno() {
                       <Insignia estatus={comprobante.estatus}>{comprobante.estatus}</Insignia>
                       {comprobante.motivoRechazo && <span className="text-error">Motivo: {comprobante.motivoRechazo}</span>}
                       <Boton variante="secundario" type="button" className="ml-auto" onClick={() => descargar(comprobante)}>
-                        <Eye className="h-4 w-4" /> Ver comprobante
+                        <Eye className="h-4 w-4" /> Ver o descargar comprobante
                       </Boton>
                       <div className="w-full"><VerificacionComprobante comprobante={comprobante} /></div>
                     </div>

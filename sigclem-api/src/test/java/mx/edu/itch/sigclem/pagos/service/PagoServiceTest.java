@@ -1,7 +1,10 @@
 package mx.edu.itch.sigclem.pagos.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -14,10 +17,14 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 
 import mx.edu.itch.sigclem.alumnos.domain.Alumno;
@@ -25,6 +32,11 @@ import mx.edu.itch.sigclem.alumnos.domain.AvanceNivel;
 import mx.edu.itch.sigclem.alumnos.domain.EstatusAvance;
 import mx.edu.itch.sigclem.alumnos.repository.AlumnoRepository;
 import mx.edu.itch.sigclem.alumnos.repository.AvanceNivelRepository;
+import mx.edu.itch.sigclem.auditoria.domain.AccionAuditoria;
+import mx.edu.itch.sigclem.auditoria.domain.RegistroAuditoria;
+import mx.edu.itch.sigclem.auditoria.service.AuditoriaService;
+import mx.edu.itch.sigclem.comun.excepcion.RecursoNoEncontradoException;
+import mx.edu.itch.sigclem.pagos.dto.RechazoRequest;
 import mx.edu.itch.sigclem.catalogos.domain.Nivel;
 import mx.edu.itch.sigclem.catalogos.domain.Periodo;
 import mx.edu.itch.sigclem.catalogos.repository.NivelRepository;
@@ -78,6 +90,8 @@ class PagoServiceTest {
     private NotificacionRepository notificacionRepository;
     @Mock
     private VerificacionComprobanteService verificacion;
+    @Mock
+    private AuditoriaService auditoria;
 
     @InjectMocks
     private PagoService service;
@@ -308,6 +322,112 @@ class PagoServiceTest {
         when(autorizacionRepository.bloquearPorId(9)).thenReturn(Optional.of(autorizacion));
 
         assertThrows(ReglaNegocioException.class, () -> service.validarComprobante(5, null, coordinacion()));
+    }
+
+    @Test
+    void elAlumnoObtieneElArchivoDeSuPropioComprobanteConSuTipoDeContenido() {
+        ComprobantePago comprobante = comprobanteDe("22520187", "3f2842d3-423a-4d08-b8cd-06d60d65aa9a.png");
+        Resource recurso = new ByteArrayResource(new byte[] { 1 });
+        when(comprobanteRepository.findConRelacionesById(4)).thenReturn(Optional.of(comprobante));
+        when(archivoService.cargar(comprobante.getArchivo())).thenReturn(recurso);
+        when(archivoService.tipoContenido(comprobante.getArchivo())).thenReturn(MediaType.IMAGE_PNG);
+
+        var archivo = service.obtenerArchivo(4, new UsernamePasswordAuthenticationToken("22520187", "n/a"), false);
+
+        assertSame(recurso, archivo.recurso());
+        assertEquals(MediaType.IMAGE_PNG, archivo.tipo());
+        assertEquals("png", archivo.extension());
+    }
+
+    @Test
+    void elAlumnoNoPuedeVerElComprobanteDeOtroAlumno() {
+        ComprobantePago comprobante = comprobanteDe("22520187", "3f2842d3-423a-4d08-b8cd-06d60d65aa9a.pdf");
+        when(comprobanteRepository.findConRelacionesById(4)).thenReturn(Optional.of(comprobante));
+
+        assertThrows(RecursoNoEncontradoException.class,
+                () -> service.obtenerArchivo(4, new UsernamePasswordAuthenticationToken("22520999", "n/a"), false));
+
+        verify(archivoService, never()).cargar(any());
+    }
+
+    @Test
+    void elPersonalDePagosVeElComprobanteDeCualquierAlumno() {
+        ComprobantePago comprobante = comprobanteDe("22520187", "3f2842d3-423a-4d08-b8cd-06d60d65aa9a.pdf");
+        when(comprobanteRepository.findConRelacionesById(4)).thenReturn(Optional.of(comprobante));
+        when(archivoService.cargar(comprobante.getArchivo())).thenReturn(new ByteArrayResource(new byte[] { 1 }));
+        when(archivoService.tipoContenido(comprobante.getArchivo())).thenReturn(MediaType.APPLICATION_PDF);
+
+        var archivo = service.obtenerArchivo(4, coordinacion(), true);
+
+        assertEquals(MediaType.APPLICATION_PDF, archivo.tipo());
+        assertEquals("pdf", archivo.extension());
+    }
+
+    @Test
+    void validarManualmenteSinVerificacionConcluidaQuedaEnLaAuditoria() {
+        AutorizacionPago autorizacion = cargoAbierto(new BigDecimal("1250.00"));
+        autorizacion.setId(9);
+        ComprobantePago comprobante = new ComprobantePago();
+        comprobante.setId(5);
+        comprobante.setAutorizacion(autorizacion);
+        comprobante.setUuidCfdi("05528398-BC9D-4F97-9011-93AF8CD18E63");
+        comprobante.setRfcEmisor("TNM140723GFA");
+        comprobante.setTotal(new BigDecimal("500.00"));
+        // El SAT no respondió y no se pudo leer la descripción: coordinación valida tras revisar el documento.
+        comprobante.setEstadoSat("No disponible");
+        comprobante.setCotejoDescripcion("Sin texto");
+        when(comprobanteRepository.bloquearPorId(5)).thenReturn(Optional.of(comprobante));
+        when(autorizacionRepository.bloquearPorId(9)).thenReturn(Optional.of(autorizacion));
+        when(usuarioRepository.findByNombreUsuario("coordinador")).thenReturn(Optional.of(new Usuario()));
+        when(comprobanteRepository.save(any(ComprobantePago.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        var resultado = service.validarComprobante(5, null, coordinacion());
+
+        assertEquals("Validado", resultado.estatus());
+        ArgumentCaptor<String> detalle = ArgumentCaptor.forClass(String.class);
+        verify(auditoria).registrar(eq(AccionAuditoria.COMPROBANTE_VALIDADO), eq(RegistroAuditoria.OK), detalle.capture());
+        assertTrue(detalle.getValue().contains("Comprobante #5 del alumno 22520187"));
+        assertTrue(detalle.getValue().contains("SAT No disponible"));
+    }
+
+    @Test
+    void rechazarComprobanteGuardaElMotivoYQuedaEnLaAuditoria() {
+        AutorizacionPago autorizacion = cargoAbierto(new BigDecimal("650.00"));
+        autorizacion.setId(9);
+        ComprobantePago comprobante = new ComprobantePago();
+        comprobante.setId(5);
+        comprobante.setAutorizacion(autorizacion);
+        when(comprobanteRepository.bloquearPorId(5)).thenReturn(Optional.of(comprobante));
+        when(usuarioRepository.findByNombreUsuario("coordinador")).thenReturn(Optional.of(new Usuario()));
+        when(comprobanteRepository.save(any(ComprobantePago.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        var resultado = service.rechazarComprobante(5, new RechazoRequest("  Recibo ilegible  "), coordinacion());
+
+        assertEquals("Rechazado", resultado.estatus());
+        assertEquals("Recibo ilegible", resultado.motivoRechazo());
+        ArgumentCaptor<String> detalle = ArgumentCaptor.forClass(String.class);
+        verify(auditoria).registrar(eq(AccionAuditoria.COMPROBANTE_RECHAZADO), eq(RegistroAuditoria.OK), detalle.capture());
+        assertTrue(detalle.getValue().endsWith("Motivo: Recibo ilegible"));
+    }
+
+    @Test
+    void unRechazoImprocedenteNoQuedaRegistradoComoRealizado() {
+        ComprobantePago comprobante = new ComprobantePago();
+        comprobante.setEstatus("Validado");
+        when(comprobanteRepository.bloquearPorId(5)).thenReturn(Optional.of(comprobante));
+
+        assertThrows(ReglaNegocioException.class,
+                () -> service.rechazarComprobante(5, new RechazoRequest("Duplicado"), coordinacion()));
+
+        verify(auditoria, never()).registrar(any(), any(), any());
+    }
+
+    private ComprobantePago comprobanteDe(String numeroControl, String archivo) {
+        ComprobantePago comprobante = new ComprobantePago();
+        comprobante.setAutorizacion(cargoAbierto(new BigDecimal("650.00")));
+        comprobante.getAutorizacion().getAlumno().setNumeroControl(numeroControl);
+        comprobante.setArchivo(archivo);
+        return comprobante;
     }
 
     private AutorizacionPago cargoAbierto(BigDecimal saldo) {

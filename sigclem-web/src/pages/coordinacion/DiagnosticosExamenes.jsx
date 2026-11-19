@@ -12,6 +12,19 @@ import { ConfirmacionDoble, Modal } from '../../components/Modal';
 
 const TIPOS_EXAMEN = ['Colocación', 'Cuatro habilidades'];
 
+/** Pestaña elegida (se recuerda en este navegador); por omisión solo los pendientes. */
+const CLAVE_FILTRO = 'sigclem.examenes.filtro';
+const POR_PAGINA = 20;
+
+function filtroGuardado() {
+  try {
+    const valor = window.localStorage.getItem(CLAVE_FILTRO);
+    return ['pendientes', 'concluidos', 'todos'].includes(valor) ? valor : 'pendientes';
+  } catch {
+    return 'pendientes';
+  }
+}
+
 function formatearFecha(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
@@ -41,7 +54,8 @@ export default function DiagnosticosExamenes({ soloLectura = false }) {
   const [niveles, setNiveles] = useState([]);
   const [alumnos, setAlumnos] = useState([]);
   const [cargando, setCargando] = useState(true);
-  const [filtro, setFiltro] = useState('todos');
+  const [filtro, setFiltroEstado] = useState(filtroGuardado);
+  const [mostrar, setMostrar] = useState(POR_PAGINA);
   const [texto, setTexto] = useState('');
   const [error, setError] = useState('');
   const [exito, setExito] = useState('');
@@ -83,14 +97,25 @@ export default function DiagnosticosExamenes({ soloLectura = false }) {
     }
   };
 
+  const setFiltro = (valor) => {
+    setFiltroEstado(valor);
+    setMostrar(POR_PAGINA);
+    try { window.localStorage.setItem(CLAVE_FILTRO, valor); } catch { /* sin almacenamiento: solo esta visita */ }
+  };
+
   const abrir = (setter, valor) => { setErrorModal(''); setExito(''); setter(valor); };
 
-  const visibles = examenes
+  const fechaDe = (ex) => (ex.fechaHoraAplicacion ? new Date(ex.fechaHoraAplicacion).getTime() : 0);
+  const filtrados = examenes
     .filter((ex) => (filtro === 'pendientes' ? !ex.concluido : filtro === 'concluidos' ? ex.concluido : true))
     .filter((ex) => {
       const t = texto.trim().toLowerCase();
       return !t || ex.nombreAlumno.toLowerCase().includes(t) || ex.numeroControl.toLowerCase().includes(t);
-    });
+    })
+    // Pendientes: el más próximo primero. Con resultado y todos: el más reciente primero.
+    .sort((a, b) => (filtro === 'pendientes' ? fechaDe(a) - fechaDe(b) : fechaDe(b) - fechaDe(a)));
+  const visibles = filtro === 'pendientes' ? filtrados : filtrados.slice(0, mostrar);
+  const concluidos = examenes.filter((x) => x.concluido).length;
 
   return (
     <div className="grid gap-[18px]">
@@ -112,9 +137,9 @@ export default function DiagnosticosExamenes({ soloLectura = false }) {
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="inline-flex rounded-lg border border-linea bg-white p-0.5 text-xs">
-          {[['todos', `Todos (${examenes.length})`], ['pendientes', `Pendientes (${examenes.filter((x) => !x.concluido).length})`],
-            ['concluidos', `Con resultado (${examenes.filter((x) => x.concluido).length})`]].map(([v, t]) => (
-            <button key={v} type="button" onClick={() => setFiltro(v)}
+          {[['pendientes', `Pendientes (${examenes.length - concluidos})`], ['concluidos', `Con resultado (${concluidos})`],
+            ['todos', `Todos (${examenes.length})`]].map(([v, t]) => (
+            <button key={v} type="button" onClick={() => setFiltro(v)} aria-pressed={filtro === v}
               className={`rounded-md px-3 py-1.5 font-semibold ${filtro === v ? 'bg-marino text-white' : 'text-tenue hover:text-tinta'}`}>{t}</button>
           ))}
         </div>
@@ -125,8 +150,17 @@ export default function DiagnosticosExamenes({ soloLectura = false }) {
         </div>
       </div>
 
+      {filtro === 'pendientes' && concluidos > 0 && !cargando && (
+        <p className="-mt-2 text-xs text-tenue">
+          {concluidos === 1 ? 'Se oculta 1 examen' : `Se ocultan ${concluidos} exámenes`} con resultado; consúltalos en
+          «Con resultado» o en el expediente de cada alumno.
+        </p>
+      )}
+
       {cargando ? <Cargando /> : visibles.length === 0 ? (
-        <Tarjeta><p className="py-6 text-center text-tenue">No hay exámenes que coincidan.</p></Tarjeta>
+        <Tarjeta><p className="py-6 text-center text-tenue">
+          {filtro === 'pendientes' && !texto.trim() ? 'No hay exámenes pendientes de resultado.' : 'No hay exámenes que coincidan.'}
+        </p></Tarjeta>
       ) : (
         <div className="grid gap-3">
           {visibles.map((ex) => (
@@ -174,6 +208,12 @@ export default function DiagnosticosExamenes({ soloLectura = false }) {
               </div>}
             </Tarjeta>
           ))}
+          {visibles.length < filtrados.length && (
+            <div className="flex flex-wrap items-center justify-center gap-3 text-xs text-tenue">
+              Mostrando {visibles.length} de {filtrados.length}
+              <Boton variante="secundario" onClick={() => setMostrar(mostrar + POR_PAGINA)}>Mostrar {POR_PAGINA} más</Boton>
+            </div>
+          )}
         </div>
       )}
 

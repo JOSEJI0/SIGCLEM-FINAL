@@ -3,7 +3,7 @@ import { Eye, FileText, ImagePlus, PenLine, Save, Trash2 } from 'lucide-react';
 import { mensajeError } from '../../api/cliente';
 import {
   actualizarConfiguracionConstancias, eliminarImagenConstancia, guardarImagenConstancia, obtenerConfiguracionConstancias,
-  obtenerImagenConstancia, vistaPreviaConstancia, estadoPlantillasConstancia, guardarPlantillaConstancia,
+  obtenerImagenConstancia, vistaPreviaConstancia,
 } from '../../api/constancias';
 import { Alerta, Boton, Campo, Cargando, Tarjeta, claseEntrada } from '../../components/ui';
 import { useVisorDocumento } from '../../components/VisorDocumento';
@@ -19,10 +19,6 @@ const IMAGENES = [
   { tipo: 'PIE', ruta: 'pie', titulo: 'Pie de página del oficio', ayuda: 'Franja inferior: imagen del año, dirección y logos de certificaciones. Recomendado: imagen horizontal (≈ 5:1).' },
   { tipo: 'LOGO_COORDINACION', ruta: 'logo-coordinacion', titulo: 'Logo de la coordinación', ayuda: 'Aparece en la constancia de avance por nivel.' },
 ];
-const PLANTILLAS = [
-  { tipo: 'ingles', titulo: 'Constancia de acreditación de inglés' },
-  { tipo: 'lengua-materna', titulo: 'Constancia de lengua materna' },
-];
 
 function fechaHora(iso) {
   return iso ? new Date(iso).toLocaleString('es-MX') : null;
@@ -35,7 +31,6 @@ export default function FirmasMembrete() {
   const [config, setConfig] = useState(null);
   const [formulario, setFormulario] = useState(null);
   const [vistas, setVistas] = useState({});
-  const [plantillas, setPlantillas] = useState(null);
   const [guardando, setGuardando] = useState('');
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
@@ -70,8 +65,8 @@ export default function FirmasMembrete() {
   }, [cargarVistas]);
 
   useEffect(() => {
-    Promise.all([obtenerConfiguracionConstancias(), estadoPlantillasConstancia()])
-      .then(([datos, estado]) => { aplicar(datos); setPlantillas(estado); })
+    obtenerConfiguracionConstancias()
+      .then(aplicar)
       .catch((e) => setError(mensajeError(e)));
   }, [aplicar]);
 
@@ -116,23 +111,6 @@ export default function FirmasMembrete() {
     try {
       aplicar(await eliminarImagenConstancia(imagen.ruta));
       setAviso(`${imagen.titulo}: se usará la imagen predeterminada.`);
-    } catch (e) {
-      setError(mensajeError(e));
-    } finally {
-      setGuardando('');
-    }
-  }
-
-  async function subirPlantilla(plantilla, archivo) {
-    if (!archivo) return;
-    setGuardando(`plantilla-${plantilla.tipo}`);
-    setError('');
-    setAviso('');
-    try {
-      const datos = new FormData();
-      datos.append('archivo', archivo);
-      setPlantillas(await guardarPlantillaConstancia(plantilla.tipo, datos));
-      setAviso(`${plantilla.titulo} actualizada.`);
     } catch (e) {
       setError(mensajeError(e));
     } finally {
@@ -266,31 +244,11 @@ export default function FirmasMembrete() {
       </Tarjeta>
 
       <Tarjeta titulo="Plantillas Word de acreditación" icono={FileText}>
-        <p className="mb-3 text-sm text-tenue">
-          Sube un .docx de referencia para inglés y otro para lengua materna. Al emitir, SIGCLEM conserva el diseño y
-          reemplaza los datos del alumno, carrera, plan, lengua, fecha y folio; en inglés también niveles, horas y MCER.
-          En el apartado de lengua materna coordinación seguirá cargando la evidencia de la Universidad Intercultural.
+        <p className="text-sm text-tenue">
+          Las plantillas Word de las constancias de acreditación (inglés y lengua materna) se administran ahora en
+          <b> Constancias</b>, junto con la lista de marcadores y la vista previa. Los firmantes y el registro de la
+          coordinación que se capturan aquí se usan en esas plantillas.
         </p>
-        <div className="grid gap-3 md:grid-cols-2">
-          {PLANTILLAS.map((plantilla) => (
-            <div key={plantilla.tipo} className="grid gap-2 rounded-lg border border-linea p-3">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold">{plantilla.titulo}</p>
-                <span className="text-xs text-tenue">
-                  {plantillas?.[plantilla.tipo] ? 'Plantilla cargada' : 'Pendiente de cargar'}
-                </span>
-              </div>
-              <label className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-lg border border-linea px-3 py-2 text-sm font-medium hover:bg-black/5">
-                <FileText className="h-4 w-4" />
-                {guardando === `plantilla-${plantilla.tipo}`
-                  ? 'Subiendo…' : plantillas?.[plantilla.tipo] ? 'Reemplazar plantilla' : 'Subir plantilla'}
-                <input type="file" className="sr-only" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                  disabled={guardando !== ''}
-                  onChange={(e) => { subirPlantilla(plantilla, e.target.files?.[0]); e.target.value = ''; }} />
-              </label>
-            </div>
-          ))}
-        </div>
       </Tarjeta>
     </div>
   );

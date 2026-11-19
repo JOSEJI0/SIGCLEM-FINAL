@@ -42,5 +42,12 @@ export const vistaPreviaConstancia = (formato) =>
 export const estadoPlantillasConstancia = () =>
   api.get('/constancias/configuracion/plantillas').then((respuesta) => respuesta.data);
 export const guardarPlantillaConstancia = (tipo, datos) =>
-  api.put(`/constancias/configuracion/plantillas/${encodeURIComponent(tipo)}`, datos)
+  api.put(`/constancias/configuracion/plantillas/${encodeURIComponent(tipo)}`, datos, { timeout: 60000 })
+    .then((respuesta) => respuesta.data);
+/** Marcadores ({{NOMBRE}}, {{FOLIO}}…) que el sistema sustituye en las plantillas Word. */
+export const marcadoresPlantillaConstancia = () =>
+  api.get('/constancias/configuracion/plantillas/marcadores').then((respuesta) => respuesta.data);
+/** archivo = plantilla vigente; ejemplo = plantilla con marcadores incluida; vista-previa = constancia de prueba. */
+export const descargarPlantillaConstancia = (tipo, cual) =>
+  api.get(`/constancias/configuracion/plantillas/${encodeURIComponent(tipo)}/${cual}`, { responseType: 'blob' })
     .then((respuesta) => respuesta.data);

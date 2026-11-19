@@ -48,18 +48,59 @@ public class ConfiguracionConstanciaController {
 
     @GetMapping("/plantillas")
     @PreAuthorize("hasAnyRole('COORDINADOR','JEFA_DGTV')")
-    @Operation(summary = "Consultar las plantillas Word configuradas")
-    public java.util.Map<String, Boolean> estadoPlantillas() {
+    @Operation(summary = "Consultar las plantillas Word configuradas",
+            description = "Rol: [Coordinador][Jefa DGTV]. Por tipo (ingles, lengua-materna): si hay una plantilla "
+                    + "cargada (si no, se usa la de ejemplo), el modo y los marcadores que contiene.")
+    public java.util.Map<String, ConstanciaWordService.EstadoPlantilla> estadoPlantillas() {
         return wordService.estadoPlantillas();
+    }
+
+    @GetMapping("/plantillas/marcadores")
+    @PreAuthorize("hasAnyRole('COORDINADOR','JEFA_DGTV')")
+    @Operation(summary = "Marcadores que se pueden escribir en las plantillas Word", description = "Rol: [Coordinador][Jefa DGTV]")
+    public java.util.List<ConstanciaWordService.Marcador> marcadores() {
+        return wordService.listaMarcadores();
     }
 
     @PutMapping(value = "/plantillas/{tipo}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasRole('COORDINADOR')")
-    @Operation(summary = "Cargar plantilla Word de inglés o lengua materna", description = "Rol: [Coordinador]. DOCX de hasta 8 MB.")
-    public java.util.Map<String, Boolean> guardarPlantilla(
+    @Operation(summary = "Cargar plantilla Word de inglés o lengua materna",
+            description = "Rol: [Coordinador]. DOCX de hasta 8 MB con marcadores como {{NOMBRE}}; se valida "
+                    + "generando una constancia de prueba antes de guardarla.")
+    public java.util.Map<String, ConstanciaWordService.EstadoPlantilla> guardarPlantilla(
             @PathVariable String tipo, @RequestParam("archivo") MultipartFile archivo) {
         wordService.guardarPlantilla(tipo, archivo);
         return wordService.estadoPlantillas();
+    }
+
+    @GetMapping("/plantillas/{tipo}/archivo")
+    @PreAuthorize("hasRole('COORDINADOR')")
+    @Operation(summary = "Descargar la plantilla Word vigente para editarla", description = "Rol: [Coordinador]")
+    public ResponseEntity<byte[]> descargarPlantilla(@PathVariable String tipo) {
+        return word(wordService.plantillaVigente(tipo), "plantilla-" + tipo + ".docx", "attachment");
+    }
+
+    @GetMapping("/plantillas/{tipo}/ejemplo")
+    @PreAuthorize("hasRole('COORDINADOR')")
+    @Operation(summary = "Descargar la plantilla de ejemplo con los marcadores ya colocados", description = "Rol: [Coordinador]")
+    public ResponseEntity<byte[]> plantillaEjemplo(@PathVariable String tipo) {
+        return word(wordService.plantillaEjemplo(tipo), "plantilla-ejemplo-" + tipo + ".docx", "attachment");
+    }
+
+    @GetMapping("/plantillas/{tipo}/vista-previa")
+    @PreAuthorize("hasAnyRole('COORDINADOR','JEFA_DGTV')")
+    @Operation(summary = "Constancia Word de prueba con datos ficticios", description = "Rol: [Coordinador][Jefa DGTV]")
+    public ResponseEntity<byte[]> vistaPreviaPlantilla(@PathVariable String tipo) {
+        return word(wordService.vistaPrevia(tipo, service.membreteVigente()), "vista-previa-" + tipo + ".docx",
+                "attachment");
+    }
+
+    private static ResponseEntity<byte[]> word(byte[] contenido, String nombre, String disposicion) {
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposicion + "; filename=\"" + nombre + "\"")
+                .body(contenido);
     }
 
     @GetMapping

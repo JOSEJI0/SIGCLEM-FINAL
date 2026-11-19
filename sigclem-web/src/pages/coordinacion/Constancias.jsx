@@ -6,6 +6,7 @@ import {
 import { buscarAlumnos } from '../../api/alumnos';
 import { mensajeError } from '../../api/cliente';
 import ConstanciasAvance from '../../components/ConstanciasAvance';
+import PlantillasConstancia from '../../components/PlantillasConstancia';
 import { Alerta, Boton, Campo, Cargando, Insignia, Tarjeta, claseEntrada } from '../../components/ui';
 import { useVisorDocumento } from '../../components/VisorDocumento';
 
@@ -134,6 +135,7 @@ export default function Constancias({ soloLectura = false }) {
       {exito && <Alerta tipo="ok">{exito}</Alerta>}
 
       {soloLectura && <Alerta tipo="info">Consulta de solo lectura: las operaciones las realiza la coordinación.</Alerta>}
+      <PlantillasConstancia soloLectura={soloLectura} />
       {!soloLectura && <Tarjeta titulo="Emitir constancia sin solicitud del alumno" icono={FilePlus2}>
         <form className="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]" onSubmit={emitirDirecta}>
           <Campo etiqueta="Número de control" id="ncDirecta" ayuda="Debe haber acreditado los diez niveles del programa de inglés.">

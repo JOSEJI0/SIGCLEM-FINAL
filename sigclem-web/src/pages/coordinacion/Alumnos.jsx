@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Search, UserRound, UserPlus, Upload, UserMinus, RotateCcw, Unlock, Download } from 'lucide-react';
+import {
+  ArrowLeft, CalendarPlus, Download, FileSpreadsheet, History, RotateCcw, Search, Unlock, Upload, UserMinus,
+  UserPlus, UserRound, Wand2,
+} from 'lucide-react';
 import {
   buscarAlumnos, obtenerExpedienteIntegral, crearAlumno, darDeBajaAlumno, reactivarAlumno, liberarIdioma,
   cargarAlumnosExcel, descargarPlantillaAlumnos, cargarImportacionOperativa, descargarPlantillaOperativa,
@@ -18,6 +21,82 @@ const SEMESTRES = Array.from({ length: 15 }, (_, i) => i + 1);
 /** Caracteres que no forman parte de un nombre: todo lo que no sea letra (con acentos y ñ), espacio, guion o apóstrofo. */
 const NO_LETRAS = /[^\p{L}\s'’-]/gu;
 const SEXO = { H: 'Hombre', M: 'Mujer' };
+
+/** Guarda en el equipo un archivo descargado de la API (plantillas de Excel). */
+function guardarArchivo(blob, nombre) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nombre;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Las tres cargas por Excel. Cada una dice qué hace, qué no hace y cuándo usarla, para que la coordinación elija una
+ * sola vez la correcta en lugar de probar botones parecidos.
+ */
+const CARGAS_EXCEL = [
+  {
+    tipo: 'importar-operativo',
+    icono: CalendarPlus,
+    titulo: 'Inicio de periodo (carga operativa)',
+    cuando: 'Al arrancar un periodo: dar de alta alumnos, facilitadores, grupos y horarios nuevos.',
+    hace: 'Crea lo que no existe y deja igual lo ya registrado. Genera contraseñas temporales para facilitadores nuevos.',
+    noHace: 'No inscribe alumnos ni registra pagos, calificaciones o avance.',
+    plantilla: 'Plantilla operativa',
+  },
+  {
+    tipo: 'importar',
+    icono: History,
+    titulo: 'Histórico académico',
+    cuando: 'Para pasar al sistema el concentrado de la coordinación o periodos anteriores completos.',
+    hace: 'Crea alumnos y guarda sus niveles cursados; con 70 o más acredita el nivel. Acepta la matrícula de control escolar.',
+    noHace: 'No genera cargos ni comprobantes; lo que no venga en el archivo se queda vacío.',
+    plantilla: 'Concentrado o plantilla completa',
+  },
+  {
+    tipo: 'completar',
+    icono: Wand2,
+    titulo: 'Completar datos faltantes',
+    cuando: 'Cuando los registros ya existen y solo faltan datos (correo, semestre, aula, horario…).',
+    hace: 'Rellena únicamente los campos vacíos de alumnos, facilitadores y grupos, y agrega horarios faltantes.',
+    noHace: 'No crea registros ni cambia datos ya guardados, calificaciones o avance.',
+    plantilla: 'Misma plantilla completa del histórico',
+  },
+];
+
+/** Paso 1 de «Importar desde Excel»: elegir el tipo de carga. */
+function ModalElegirCarga({ onElegir, onCerrar }) {
+  return (
+    <Modal titulo="Importar desde Excel" onCerrar={onCerrar} ancho="max-w-2xl">
+      <p className="mb-3 text-[13px] text-tenue">¿Qué necesitas cargar? Elige una opción; cada una tiene su plantilla.</p>
+      <div className="grid gap-2">
+        {CARGAS_EXCEL.map(({ tipo, icono: Icono, titulo, cuando, hace, noHace, plantilla }) => (
+          <button key={tipo} type="button" onClick={() => onElegir(tipo)}
+            className="grid grid-cols-[auto_1fr] gap-x-3 rounded-lg border border-linea p-3 text-left text-[13px] hover:border-marino hover:bg-fondo focus:outline-none focus-visible:ring-2 focus-visible:ring-marino">
+            <Icono className="row-span-4 mt-0.5 h-5 w-5 text-marino" aria-hidden />
+            <b className="text-sm">{titulo}</b>
+            <span>{cuando}</span>
+            <span className="text-tenue"><b>Hace:</b> {hace} <b>No hace:</b> {noHace}</span>
+            <span className="flex items-center gap-1 text-xs text-tenue"><FileSpreadsheet className="h-3.5 w-3.5" aria-hidden /> {plantilla}</span>
+          </button>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+/** Enlace para volver a la elección del tipo de carga desde cada ventana de importación. */
+function VolverAElegir({ onVolver, deshabilitado }) {
+  if (!onVolver) return null;
+  return (
+    <button type="button" disabled={deshabilitado} onClick={onVolver}
+      className="mb-3 inline-flex items-center gap-1 text-xs font-semibold text-marino hover:underline disabled:opacity-50">
+      <ArrowLeft className="h-3.5 w-3.5" /> Elegir otro tipo de carga
+    </button>
+  );
+}
 
 function fechaCorta(iso) {
   return iso ? new Date(`${iso}T00:00:00`).toLocaleDateString('es-MX') : null;
@@ -39,7 +118,9 @@ export default function Alumnos() {
   const [errorExpediente, setErrorExpediente] = useState('');
   const [cargando, setCargando] = useState(true);
   const [cargandoExpediente, setCargandoExpediente] = useState(false);
-  const [modal, setModal] = useState(null); // { tipo: 'nuevo'|'importar'|'baja'|'liberar', alumno? }
+  // { tipo: 'nuevo'|'elegir-carga'|'importar-operativo'|'importar'|'completar'|'baja'|'liberar', alumno?, desdeEleccion? }
+  const [modal, setModal] = useState(null);
+  const volverAElegir = () => setModal({ tipo: 'elegir-carga' });
 
   const cargar = useCallback(async (criterio, numeroPagina) => {
     setCargando(true);
@@ -185,14 +266,8 @@ export default function Alumnos() {
         extra={pagina ? `${pagina.totalElements} en total` : ''}
         acciones={puedeEditar ? (
           <div className="flex flex-wrap gap-2">
-            <Boton type="button" onClick={() => { setAviso(''); setModal({ tipo: 'importar-operativo' }); }}>
-              <Upload className="h-4 w-4" /> Carga operativa
-            </Boton>
-            <Boton variante="secundario" type="button" onClick={() => { setAviso(''); setModal({ tipo: 'importar' }); }}>
-              <Upload className="h-4 w-4" /> Importar histórico
-            </Boton>
-            <Boton variante="secundario" type="button" onClick={() => { setAviso(''); setModal({ tipo: 'completar' }); }}>
-              <Upload className="h-4 w-4" /> Completar datos existentes
+            <Boton variante="secundario" type="button" onClick={() => { setAviso(''); setModal({ tipo: 'elegir-carga' }); }}>
+              <Upload className="h-4 w-4" /> Importar desde Excel
             </Boton>
             <Boton type="button" onClick={() => { setAviso(''); setModal({ tipo: 'nuevo' }); }}>
               <UserPlus className="h-4 w-4" /> Nuevo alumno
@@ -310,9 +385,13 @@ export default function Alumnos() {
         <ModalNuevoAlumno carreras={carreras} onCerrar={() => setModal(null)}
           onCreado={(nc) => recargar(`Alumno ${nc} creado. Su contraseña inicial es su número de control.`)} />
       )}
+      {modal?.tipo === 'elegir-carga' && (
+        <ModalElegirCarga onCerrar={() => setModal(null)} onElegir={(tipo) => setModal({ tipo, desdeEleccion: true })} />
+      )}
       {modal?.tipo === 'importar' && (
-        <ModalImportar 
-          onCerrar={() => setModal(null)} 
+        <ModalImportar
+          onCerrar={() => setModal(null)}
+          onVolver={modal.desdeEleccion ? volverAElegir : null}
           onImportado={(r) => recargar(
             `Importación: ${r.creados} alumnos nuevos, ${r.actualizados ?? 0} actualizados, ` +
             `${r.nivelesImportados} niveles en el historial` +
@@ -324,6 +403,7 @@ export default function Alumnos() {
       {modal?.tipo === 'completar' && (
         <ModalCompletarDatos
           onCerrar={() => setModal(null)}
+          onVolver={modal.desdeEleccion ? volverAElegir : null}
           onCompletado={(r) => recargar(
             `Completar datos: ${r.camposCompletados} campos en ${r.alumnosActualizados} alumnos, ` +
             `${r.facilitadoresActualizados} facilitadores y ${r.gruposActualizados} grupos; ` +
@@ -334,6 +414,7 @@ export default function Alumnos() {
       {modal?.tipo === 'importar-operativo' && (
         <ModalImportarOperativo
           onCerrar={() => setModal(null)}
+          onVolver={modal.desdeEleccion ? volverAElegir : null}
           onImportado={(r) => recargar(
             `Carga operativa: ${r.alumnosCreados} alumnos, ${r.facilitadoresCreados} facilitadores, ` +
             `${r.gruposCreados} grupos y ${r.horariosCreados} horarios creados.`
@@ -429,7 +510,7 @@ function ModalNuevoAlumno({ carreras, onCerrar, onCreado }) {
 }
 
 /** Carga masiva desde Excel con reporte de resultado. */
-function ModalImportar({ onCerrar, onImportado }) {
+function ModalImportar({ onCerrar, onVolver, onImportado }) {
   const [archivo, setArchivo] = useState(null);
   const [matricula, setMatricula] = useState(null);
   const [resultado, setResultado] = useState(null);
@@ -438,13 +519,7 @@ function ModalImportar({ onCerrar, onImportado }) {
 
   const plantilla = async () => {
     try {
-      const blob = await descargarPlantillaAlumnos();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'plantilla-historico-sigclem.xlsx';
-      a.click();
-      URL.revokeObjectURL(url);
+      guardarArchivo(await descargarPlantillaAlumnos(), 'plantilla-historico-sigclem.xlsx');
     } catch (e) { setError(mensajeError(e)); }
   };
 
@@ -483,7 +558,8 @@ function ModalImportar({ onCerrar, onImportado }) {
     || (resultado.gruposImportados === 0 && resultado.inscripcionesImportadas === 0));
 
   return (
-    <Modal titulo="Importar histórico desde Excel" onCerrar={onCerrar} ancho="max-w-xl">
+    <Modal titulo="Histórico académico desde Excel" onCerrar={() => (resultado ? onImportado(resultado) : !subiendo && onCerrar())} ancho="max-w-xl">
+      <VolverAElegir onVolver={resultado ? null : onVolver} deshabilitado={subiendo} />
       <p className="text-[13px]">
         Sube el <b>concentrado de la coordinación</b> tal como está (una fila por alumno con Básico 1 … Intermedio 5,
         Intensivo y Liberado). No hace falta llenar los espacios en blanco: lo que no venga se guarda vacío. Las
@@ -491,7 +567,8 @@ function ModalImportar({ onCerrar, onImportado }) {
       </p>
       <p className="mt-2 text-[13px] text-tenue">
         También acepta la plantilla completa (hojas Grupos, Inscripciones y Horarios) para periodos con todos los datos.
-        Puedes volver a subir el archivo: no se duplica nada. No se generan cargos ni comprobantes.
+        Puedes volver a subir el archivo: no se duplica nada. No se generan cargos ni comprobantes. Si los alumnos ya
+        existen y solo faltan datos, usa «Completar datos faltantes».
       </p>
       <Boton variante="secundario" type="button" className="mt-3" onClick={plantilla}>
         <Download className="h-4 w-4" /> Descargar plantilla completa
@@ -568,7 +645,7 @@ function ModalImportar({ onCerrar, onImportado }) {
   );
 }
 
-function ModalCompletarDatos({ onCerrar, onCompletado }) {
+function ModalCompletarDatos({ onCerrar, onVolver, onCompletado }) {
   const [archivo, setArchivo] = useState(null);
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState('');
@@ -576,13 +653,7 @@ function ModalCompletarDatos({ onCerrar, onCompletado }) {
 
   const descargarPlantilla = async () => {
     try {
-      const blob = await descargarPlantillaAlumnos();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'plantilla-historico-sigclem.xlsx';
-      a.click();
-      URL.revokeObjectURL(url);
+      guardarArchivo(await descargarPlantillaAlumnos(), 'plantilla-historico-sigclem.xlsx');
     } catch (e) {
       setError(mensajeError(e));
     }
@@ -603,15 +674,17 @@ function ModalCompletarDatos({ onCerrar, onCompletado }) {
   };
 
   return (
-    <Modal titulo="Completar datos existentes" onCerrar={onCerrar} ancho="max-w-xl">
+    <Modal titulo="Completar datos faltantes" onCerrar={() => (resultado ? onCompletado(resultado) : !subiendo && onCerrar())} ancho="max-w-xl">
+      <VolverAElegir onVolver={resultado ? null : onVolver} deshabilitado={subiendo} />
       <p className="text-[13px]">
-        Usa el Excel del histórico con las hojas Alumnos, Grupos y Horarios. Solo se rellenan campos vacíos en
+        Usa la misma plantilla completa del histórico (hojas Alumnos, Grupos y Horarios); al descargarla ya trae los
+        datos actuales, así que solo llena lo que falta. Solo se rellenan campos vacíos en
         alumnos, facilitadores y grupos; cualquier dato ya guardado se conserva. Los horarios nuevos se agregan sin
         borrar ni reemplazar los actuales. No se crean alumnos, facilitadores, grupos o inscripciones, y no se cambian
         calificaciones ni avance académico.
       </p>
       <Boton variante="secundario" type="button" className="mt-3" onClick={descargarPlantilla}>
-        <Download className="h-4 w-4" /> Descargar Excel actual
+        <Download className="h-4 w-4" /> Descargar plantilla con los datos actuales
       </Boton>
       <div className="mt-4">
         <input type="file" accept=".xlsx" onChange={(e) => {
@@ -659,7 +732,7 @@ function ModalCompletarDatos({ onCerrar, onCompletado }) {
   );
 }
 
-function ModalImportarOperativo({ onCerrar, onImportado }) {
+function ModalImportarOperativo({ onCerrar, onVolver, onImportado }) {
   const [archivo, setArchivo] = useState(null);
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState('');
@@ -667,13 +740,7 @@ function ModalImportarOperativo({ onCerrar, onImportado }) {
 
   const descargarPlantilla = async () => {
     try {
-      const blob = await descargarPlantillaOperativa();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'plantilla-carga-operativa-sigclem.xlsx';
-      a.click();
-      URL.revokeObjectURL(url);
+      guardarArchivo(await descargarPlantillaOperativa(), 'plantilla-carga-operativa-sigclem.xlsx');
     } catch (e) {
       setError(mensajeError(e));
     }
@@ -713,7 +780,8 @@ function ModalImportarOperativo({ onCerrar, onImportado }) {
   };
 
   return (
-    <Modal titulo="Carga operativa desde Excel" onCerrar={onCerrar} ancho="max-w-2xl">
+    <Modal titulo="Inicio de periodo: carga operativa" onCerrar={() => (resultado ? onImportado(resultado) : !subiendo && onCerrar())} ancho="max-w-2xl">
+      <VolverAElegir onVolver={resultado ? null : onVolver} deshabilitado={subiendo} />
       <p className="text-[13px]">
         Importa alumnos, facilitadores, grupos y horarios. <b>No</b> inscribe alumnos ni importa pagos,
         calificaciones o avance académico. Los niveles y carreras deben existir en sus catálogos.
@@ -839,14 +907,14 @@ function ModalLiberar({ alumno, onCerrar, onLiberado }) {
   const formaFinal = forma === 'Otra' ? otra.trim() : forma;
 
   const confirmar = async () => {
-    setEnviando(true); 
+    setEnviando(true);
     setError('');
     try {
       await liberarIdioma(alumno.numeroControl, formaFinal, detalle.trim() || null);
       onLiberado(formaFinal);
-    } catch (e) { 
-      setError(mensajeError(e)); 
-      setEnviando(false); 
+    } catch (e) {
+      setError(mensajeError(e));
+      setEnviando(false);
     }
   };
 
@@ -856,9 +924,9 @@ function ModalLiberar({ alumno, onCerrar, onLiberado }) {
         <b>{alumno.nombreCompleto}</b> ({alumno.numeroControl}) quedará con el <b>idioma acreditado</b> por la forma que
         elijas. Todos sus niveles pendientes se marcarán como exentos con esa forma.
       </p>
-      
+
       {error && <Alerta tipo="error" className="mt-3">{error}</Alerta>}
-      
+
       <Campo etiqueta="Forma de liberación" id="forma" className="mt-3">
         <select id="forma" className={claseEntrada} value={forma} onChange={(e) => setForma(e.target.value)}>
           <option value="Examen global">Examen global (aprobado)</option>
